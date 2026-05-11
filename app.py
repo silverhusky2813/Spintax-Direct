@@ -1,0 +1,414 @@
+import streamlit as st
+from datetime import date
+from spintax import spin
+
+# ── Page config ───────────────────────────────────────────────────────────────
+st.set_page_config(
+    page_title="Direct Deal Spintax Generator",
+    page_icon="💼",
+    layout="wide",
+    initial_sidebar_state="expanded",
+)
+
+st.markdown("""
+<style>
+    [data-testid="stSidebar"] { min-width: 320px; }
+    code { white-space: pre-wrap !important; }
+</style>
+""", unsafe_allow_html=True)
+
+# ── Static data ───────────────────────────────────────────────────────────────
+VERTICALS_BRANDS = {
+    "Gaming":           ["AppLovin", "Unity Ads", "Vungle", "Mintegral", "Chartboost", "Digital Turbine", "Scopely"],
+    "Finance":          ["HSBC", "American Express", "Visa", "Mastercard", "Fidelity", "Charles Schwab", "PayPal"],
+    "Travel":           ["Booking Holdings", "Expedia", "Airbnb", "TripAdvisor", "Marriott", "Hilton", "Delta Airlines"],
+    "E-commerce":       ["Amazon", "Nike", "Unilever", "P&G", "L'Oreal", "LVMH", "Shopify"],
+    "Health & Fitness": ["Peloton", "Nike Health", "Johnson & Johnson", "Abbott", "Fitbit", "Whoop", "Headspace"],
+    "Automotive":       ["Toyota", "BMW", "Ford", "Volkswagen", "Hyundai", "General Motors", "Tesla"],
+    "Retail":           ["Walmart", "Target", "Best Buy", "H&M", "Zara", "IKEA", "Costco"],
+    "Entertainment":    ["Netflix", "Disney+", "Warner Bros", "Spotify", "Apple", "Sony", "Electronic Arts"],
+}
+
+BUDGET_OPTIONS = [
+    "$80,000", "$100,000", "$150,000", "$200,000",
+    "$250,000", "$300,000", "$350,000", "$400,000", "Custom"
+]
+
+FLIGHT_OPTIONS = [
+    "Q3 2025 (Jul 1 – Sep 30, 2025)",
+    "Q4 2025 (Oct 1 – Dec 31, 2025)",
+    "Q1 2026 (Jan 1 – Mar 31, 2026)",
+    "Q2 2026 (Apr 1 – Jun 30, 2026)",
+    "Rolling 4 weeks",
+    "Rolling 8 weeks",
+]
+
+GEO_DATA = {
+    "US":     {"countries": "United States",                                           "mult": 1.00},
+    "Tier 1": {"countries": "UK, Canada, Australia, Germany, France",                  "mult": 0.60},
+    "Tier 2": {"countries": "Brazil, Mexico, Japan, South Korea, Spain, Italy",         "mult": 0.35},
+    "Tier 3": {"countries": "Indonesia, Thailand, Vietnam, Philippines, Turkey, Poland","mult": 0.15},
+    "Tier 4": {"countries": "India, Pakistan, Nigeria, Egypt, Bangladesh",              "mult": 0.08},
+    "ROW":    {"countries": "Rest of World",                                            "mult": 0.06},
+}
+
+ALL_FORMATS = [
+    "Instream Video", "Rewarded Video", "Interstitial",
+    "Banner/Display", "App Open", "Native", "Audio Ads",
+]
+
+CPM_BASE = {
+    "Instream Video": 12.0,
+    "Rewarded Video": 10.0,
+    "Interstitial":    8.0,
+    "Banner/Display":  2.5,
+    "App Open":        6.0,
+    "Native":          4.0,
+    "Audio Ads":       7.0,
+}
+
+# ── Spintax templates ─────────────────────────────────────────────────────────
+
+OUTREACH_SUBJECT = (
+    "{Exclusive|Confirmed|Active} {campaign opportunity|media buy|advertiser interest}"
+    " — <<VERTICAL>> | <<APP_NAME>>"
+)
+
+OUTREACH_BODY = """\
+Hi <<PROSPECT_NAME>>,
+
+{I'm reaching out because we have|Quick note — we've secured|Hope you're doing well. We have} a \
+{confirmed|live|active} {direct deal|brand campaign|media buy} from <<BRAND>> {with budget \
+specifically allocated for|actively targeting|looking for} <<VERTICAL>> {mobile app|in-app|app} \
+{inventory|audiences|placements} {this quarter|in the coming weeks|for the current period}.
+
+{Here's a quick snapshot|Campaign overview|What we have on the table}:
+
+  Brand / Advertiser  :  <<BRAND>>
+  {Campaign budget|Allocated spend}  :  <<BUDGET>>
+  {Ad formats|Units}  :  <<FORMATS>>
+  {Target markets|GEOs}  :  <<GEOS>>
+  {Flight period|Duration}  :  <<FLIGHT>>
+
+{<<APP_NAME>>|Your app} {is a strong fit for their targeting parameters|stood out as a top \
+candidate for this placement|matches the audience profile they're after} — {we specifically \
+shortlisted it during targeting|it came up in our inventory review|your user base aligns well \
+with their ICP}.
+
+{We handle everything through Google Ad Manager as a GCPP|As a Google Certified Publishing \
+Partner, setup is clean and fast|All deals run via GAM — transparent, no surprises} — \
+{no migration required|no changes to your existing stack|fully compatible with your current setup}.
+
+{Would you be open to a quick call|Are you free for 15 minutes|Can we connect briefly} \
+{this week|early next week|in the next day or two} to {go over the details|confirm availability|\
+align on terms}?
+
+{Best regards,|Cheers,|Looking forward to connecting,}
+Daniel
+Head of Global Partnerships | PremiumAds
+premiumads.net\
+"""
+
+FOLLOWUP_SUBJECT = (
+    "{Following up — |Re: }{Confirmed {campaign|deal}|{Active|Exclusive} media buy}"
+    " — <<BRAND>> x <<APP_NAME>>"
+)
+
+FOLLOWUP_BODY = """\
+Hi <<PROSPECT_NAME>>,
+
+{Just wanted to follow up on|Circling back on|Checking in regarding} my {previous message|\
+note from last week|earlier email} about the <<BRAND>> {campaign|media buy|direct deal}.
+
+{The opportunity is still open|Budget is still available|The campaign is still active} — \
+{the flight window is coming up|we haven't filled the inventory yet|I wanted to make sure \
+this didn't get lost in the inbox}.
+
+{Quick recap|Just to recap|Campaign snapshot}:
+
+  Brand    :  <<BRAND>>
+  Budget   :  <<BUDGET>>
+  Formats  :  <<FORMATS>>
+  GEOs     :  <<GEOS>>
+  Flight   :  <<FLIGHT>>
+
+{Happy to send over the full campaign brief if that helps|I can jump on a quick call if easier|\
+Let me know if you'd like more details} — {no heavy lift on your end|setup is straightforward \
+via GAM|we can have this live within a few days of confirmation}.
+
+{No pressure — just didn't want you to miss out on this one.|Totally understand if timing \
+isn't right — happy to reconnect next quarter.|If now isn't ideal, let me know a better time \
+and I'll follow up then.}
+
+{Best,|Cheers,|Thanks,}
+Daniel
+PremiumAds | Head of Global Partnerships
+premiumads.net\
+"""
+
+BRIEF_BODY = """\
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+  AGENCY CAMPAIGN BRIEF
+  PremiumAds — Direct Deal Program
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+  Reference No.    :  PA-DD-{2025|2026}-{47|48|49|50|51|52|53|54}
+  {Issued|Prepared|Generated}          :  <<TODAY_DATE>>
+  Account Manager  :  Daniel — Head of Global Partnerships
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+  ADVERTISER DETAILS
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+  Brand / Advertiser  :  <<BRAND>>
+  Vertical            :  <<VERTICAL>>
+  Campaign Objective  :  {Brand awareness & reach|User acquisition & installs|Retargeting & re-engagement|Conversion-focused performance}
+  Agency / Desk       :  {In-house programmatic team|Independent trading desk|Agency of record|Omnicom|IPG Mediabrands|GroupM}
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+  PUBLISHER DETAILS
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+  Publisher           :  <<PROSPECT_NAME>>
+  App / Property      :  <<APP_NAME>>
+  Placement Type      :  {Premium in-app mobile inventory|In-app mobile — programmatic direct|Mobile app — direct placement}
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+  CAMPAIGN PARAMETERS
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+  Total Budget        :  <<BUDGET>>
+  Flight Period       :  <<FLIGHT>>
+  Target GEOs         :  <<GEOS>>
+
+  Ad Formats          :
+<<FORMATS_BULLETED>>
+
+  Frequency Cap       :  {3 impressions / user / 24h|5 impressions / user / 24h|No cap — broad reach}
+  Brand Safety        :  {GARM standard — Suitable content only|IAS / DoubleVerify verified|Publisher-declared — Premium app environment}
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+  CPM RATE CARD (Floor Rates, USD)
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+<<CPM_TABLE>>
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+  DEAL TERMS
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+  Deal Type           :  {Programmatic Guaranteed (PG)|Preferred Deal (PD)|Programmatic Direct}
+  Measurement         :  {MRC-accredited viewability standards|IAS third-party verification|DoubleVerify brand safety + viewability}
+  Payment Terms       :  {Net 30|Net 45|Net 60}
+  Creative Assets     :  {Provided by advertiser via VAST tag|Client-supplied creatives — VAST 4.1|PremiumAds creative studio (on request)}
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+  NEXT STEPS
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+{  1. Confirm inventory availability + floor CPM rates
+  2. PremiumAds issues Deal ID via Google Ad Manager
+  3. Creative assets submitted (T-3 days before flight start)
+  4. Test impressions + QA sign-off
+  5. Campaign go-live confirmation|  1. Publisher reviews brief + confirms fit
+  2. Align on CPM floor rates
+  3. Exchange Deal IDs via GAM / preferred SSP
+  4. Creative trafficking — VAST tags provided by advertiser
+  5. Activation + first-week performance check-in}
+
+  To proceed → Daniel | daniel@premiumads.net | premiumads.net
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+  {CONFIDENTIAL — For recipient use only|PRIVATE & CONFIDENTIAL|FOR PUBLISHER USE ONLY}
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\
+"""
+
+TEMPLATE_MAP = {
+    "📧 Outreach Email": {
+        "subject": OUTREACH_SUBJECT,
+        "body":    OUTREACH_BODY,
+        "is_email": True,
+    },
+    "🔁 Follow-Up Email": {
+        "subject": FOLLOWUP_SUBJECT,
+        "body":    FOLLOWUP_BODY,
+        "is_email": True,
+    },
+    "📋 Agency Campaign Brief": {
+        "subject": None,
+        "body":    BRIEF_BODY,
+        "is_email": False,
+    },
+}
+
+# ── Helper functions ──────────────────────────────────────────────────────────
+
+def build_cpm_table(selected_formats, selected_geos):
+    if not selected_formats or not selected_geos:
+        return "  [Select formats and GEOs to generate rate card]"
+    fmt_w, col_w = 22, 13
+    header  = f"  {'Format':<{fmt_w}}" + "".join(f"{'CPM (' + g + ')':>{col_w}}" for g in selected_geos)
+    divider = "  " + "─" * (fmt_w + col_w * len(selected_geos))
+    rows = [header, divider]
+    for fmt in selected_formats:
+        base = CPM_BASE.get(fmt, 5.0)
+        row  = f"  {fmt:<{fmt_w}}"
+        for g in selected_geos:
+            cpm = base * GEO_DATA[g]["mult"]
+            row += f"${cpm:>{col_w - 2}.2f}   "
+        rows.append(row)
+    return "\n".join(rows)
+
+
+def substitute(template, data):
+    formats_bulleted = (
+        "\n".join(f"    • {f}" for f in data["formats_list"])
+        if data["formats_list"] else "    • [No formats selected]"
+    )
+    subs = {
+        "<<PROSPECT_NAME>>":    data.get("prospect_name", "[Publisher Name]"),
+        "<<APP_NAME>>":         data.get("app_name",      "[App Name]"),
+        "<<BRAND>>":            data.get("brand",         "[Brand]"),
+        "<<BUDGET>>":           data.get("budget",        "[Budget]"),
+        "<<VERTICAL>>":         data.get("vertical",      "[Vertical]"),
+        "<<FORMATS>>":          data.get("formats_str",   "[Formats]"),
+        "<<FORMATS_BULLETED>>": formats_bulleted,
+        "<<GEOS>>":             data.get("geos_str",      "[GEOs]"),
+        "<<FLIGHT>>":           data.get("flight",        "[Flight Period]"),
+        "<<CPM_TABLE>>":        data.get("cpm_table",     "[CPM Table]"),
+        "<<TODAY_DATE>>":       date.today().strftime("%B %d, %Y"),
+    }
+    for k, v in subs.items():
+        template = template.replace(k, v)
+    return template
+
+
+def make_variations(subject_tpl, body_tpl, data, n):
+    filled_subj = substitute(subject_tpl, data) if subject_tpl else None
+    filled_body = substitute(body_tpl, data)
+    results = []
+    for _ in range(n):
+        results.append({
+            "subject": spin(filled_subj) if filled_subj else None,
+            "body":    spin(filled_body),
+        })
+    return results
+
+# ── Sidebar ───────────────────────────────────────────────────────────────────
+with st.sidebar:
+    st.title("💼 Direct Deal")
+    st.caption("Spintax Generator — PremiumAds")
+    st.divider()
+
+    st.subheader("📋 Prospect Info")
+    prospect_name = st.text_input("Publisher / Contact Name", placeholder="e.g. John Kim")
+    app_name      = st.text_input("App Name", placeholder="e.g. Puzzle Adventure")
+
+    st.divider()
+    st.subheader("🏷️ Campaign Details")
+
+    vertical     = st.selectbox("Vertical", list(VERTICALS_BRANDS.keys()))
+    brand_opts   = VERTICALS_BRANDS[vertical] + ["Custom"]
+    brand_choice = st.selectbox("Brand / Advertiser", brand_opts)
+    if brand_choice == "Custom":
+        brand = st.text_input("Enter brand name", placeholder="e.g. Coca-Cola")
+    else:
+        brand = brand_choice
+
+    budget_choice = st.selectbox("Budget", BUDGET_OPTIONS)
+    if budget_choice == "Custom":
+        budget = st.text_input("Enter budget", placeholder="e.g. $175,000")
+    else:
+        budget = budget_choice
+
+    flight = st.selectbox("Flight Period", FLIGHT_OPTIONS, index=1)
+
+    selected_geos = st.multiselect(
+        "Target GEOs",
+        list(GEO_DATA.keys()),
+        default=["US", "Tier 1"],
+    )
+
+    selected_formats = st.multiselect(
+        "Ad Formats",
+        ALL_FORMATS,
+        default=["Rewarded Video", "Interstitial"],
+    )
+
+    st.divider()
+    st.subheader("⚙️ Generate")
+    n_variations = st.slider("Number of variations", min_value=1, max_value=10, value=3)
+    generate_btn = st.button(
+        "🎲 Generate Variations",
+        use_container_width=True,
+        type="primary",
+    )
+
+# ── Main area ─────────────────────────────────────────────────────────────────
+st.title("Direct Deal Spintax Generator")
+st.caption("PremiumAds · Google Certified Publishing Partner · premiumads.net")
+
+# Template selector
+template_choice = st.radio(
+    "Template",
+    list(TEMPLATE_MAP.keys()),
+    horizontal=True,
+)
+st.divider()
+
+# Generate
+if generate_btn:
+    if not brand or (brand_choice == "Custom" and not brand.strip()):
+        st.warning("Please enter a brand name.")
+    elif not selected_geos:
+        st.warning("Please select at least one GEO.")
+    elif not selected_formats:
+        st.warning("Please select at least one ad format.")
+    else:
+        data = {
+            "prospect_name": prospect_name.strip() or "[Publisher Name]",
+            "app_name":      app_name.strip()      or "[App Name]",
+            "brand":         (brand.strip() if brand_choice == "Custom" else brand_choice),
+            "budget":        (budget.strip() if budget_choice == "Custom" else budget_choice),
+            "vertical":      vertical,
+            "formats_str":   ", ".join(selected_formats),
+            "formats_list":  selected_formats,
+            "geos_str":      ", ".join(selected_geos),
+            "flight":        flight,
+            "cpm_table":     build_cpm_table(selected_formats, selected_geos),
+        }
+
+        tpl = TEMPLATE_MAP[template_choice]
+        st.session_state["variations"]    = make_variations(tpl["subject"], tpl["body"], data, n_variations)
+        st.session_state["is_email"]      = tpl["is_email"]
+        st.session_state["template_name"] = template_choice
+
+# Display
+if "variations" in st.session_state and st.session_state["variations"]:
+    variations    = st.session_state["variations"]
+    is_email      = st.session_state["is_email"]
+    template_name = st.session_state["template_name"]
+
+    st.subheader(f"✅ {len(variations)} variation{'s' if len(variations) > 1 else ''} — {template_name}")
+
+    for i, var in enumerate(variations):
+        label = f"Variation {i + 1}"
+        with st.expander(label, expanded=(i == 0)):
+            if is_email and var["subject"]:
+                st.markdown(f"**Subject line:**")
+                st.code(var["subject"], language="text")
+                st.markdown("**Email body:**")
+            st.code(var["body"], language="text")
+else:
+    col1, col2, col3 = st.columns([1, 2, 1])
+    with col2:
+        st.info(
+            "**Getting started:**\n\n"
+            "1. Fill in **Prospect Info** and **Campaign Details** in the sidebar\n"
+            "2. Select a **template** above\n"
+            "3. Click **Generate Variations**\n\n"
+            "_Each variation is a unique spin of the selected template._"
+        )
+
+st.divider()
+st.caption("PremiumAds · Google Certified Publishing Partner (GCPP) · premiumads.net")
