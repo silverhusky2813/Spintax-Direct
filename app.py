@@ -19,7 +19,7 @@ st.markdown("""
 
 # ── Static data ───────────────────────────────────────────────────────────────
 VERTICALS_BRANDS = {
-    "Gaming":           ["AppLovin", "Unity Ads", "Vungle", "Mintegral", "Chartboost", "Digital Turbine", "Scopely"],
+    "FMCG":             ["Unilever", "P&G", "Nestlé", "Coca-Cola", "PepsiCo", "Colgate-Palmolive", "Reckitt"],
     "Finance":          ["HSBC", "American Express", "Visa", "Mastercard", "Fidelity", "Charles Schwab", "PayPal"],
     "Travel":           ["Booking Holdings", "Expedia", "Airbnb", "TripAdvisor", "Marriott", "Hilton", "Delta Airlines"],
     "E-commerce":       ["Amazon", "Nike", "Unilever", "P&G", "L'Oreal", "LVMH", "Shopify"],
@@ -243,7 +243,7 @@ TEMPLATE_MAP = {
 
 # ── Helper functions ──────────────────────────────────────────────────────────
 
-def build_cpm_table(selected_formats, selected_geos):
+def build_cpm_table(selected_formats, selected_geos, custom_geo_mult=0.20):
     if not selected_formats or not selected_geos:
         return "  [Select formats and GEOs to generate rate card]"
     fmt_w, col_w = 22, 13
@@ -254,7 +254,8 @@ def build_cpm_table(selected_formats, selected_geos):
         base = CPM_BASE.get(fmt, 5.0)
         row  = f"  {fmt:<{fmt_w}}"
         for g in selected_geos:
-            cpm = base * GEO_DATA[g]["mult"]
+            mult = GEO_DATA[g]["mult"] if g in GEO_DATA else custom_geo_mult
+            cpm  = base * mult
             row += f"${cpm:>{col_w - 2}.2f}   "
         rows.append(row)
     return "\n".join(rows)
@@ -307,8 +308,14 @@ with st.sidebar:
     st.divider()
     st.subheader("🏷️ Campaign Details")
 
-    vertical     = st.selectbox("Vertical", list(VERTICALS_BRANDS.keys()))
-    brand_opts   = VERTICALS_BRANDS[vertical] + ["Custom"]
+    vertical_opts   = list(VERTICALS_BRANDS.keys()) + ["Custom"]
+    vertical_choice = st.selectbox("Vertical", vertical_opts)
+    if vertical_choice == "Custom":
+        vertical   = st.text_input("Enter vertical name", placeholder="e.g. EdTech") or "[Custom Vertical]"
+        brand_opts = ["Custom"]
+    else:
+        vertical   = vertical_choice
+        brand_opts = VERTICALS_BRANDS[vertical_choice] + ["Custom"]
     brand_choice = st.selectbox("Brand / Advertiser", brand_opts)
     if brand_choice == "Custom":
         brand = st.text_input("Enter brand name", placeholder="e.g. Coca-Cola")
@@ -323,11 +330,24 @@ with st.sidebar:
 
     flight = st.selectbox("Flight Period", FLIGHT_OPTIONS, index=1)
 
+    geo_opts      = list(GEO_DATA.keys()) + ["Custom"]
     selected_geos = st.multiselect(
         "Target GEOs",
-        list(GEO_DATA.keys()),
+        geo_opts,
         default=["US", "Tier 1"],
     )
+    custom_geo_mult = 0.20  # default, only used if Custom GEO is selected
+    if "Custom" in selected_geos:
+        custom_geo = st.text_input("Custom GEO(s)", placeholder="e.g. MENA, LATAM, SEA")
+        custom_geo_mult = st.number_input(
+            "Fallback CPM multiplier for custom GEO",
+            min_value=0.01, max_value=1.00,
+            value=0.20, step=0.01,
+            help="Applied to base CPM rates. e.g. 0.20 = 20% of US rate. Ref: Tier 1=0.60 · Tier 2=0.35 · Tier 3=0.15",
+        )
+        selected_geos = [g for g in selected_geos if g != "Custom"]
+        if custom_geo.strip():
+            selected_geos.append(custom_geo.strip())
 
     selected_formats = st.multiselect(
         "Ad Formats",
@@ -375,7 +395,7 @@ if generate_btn:
             "formats_list":  selected_formats,
             "geos_str":      ", ".join(selected_geos),
             "flight":        flight,
-            "cpm_table":     build_cpm_table(selected_formats, selected_geos),
+            "cpm_table":     build_cpm_table(selected_formats, selected_geos, custom_geo_mult),
         }
 
         tpl = TEMPLATE_MAP[template_choice]
