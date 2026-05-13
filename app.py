@@ -1,4 +1,5 @@
 import streamlit as st
+import random
 from datetime import date
 from spintax import spin
 
@@ -243,7 +244,8 @@ TEMPLATE_MAP = {
 
 # ── Helper functions ──────────────────────────────────────────────────────────
 
-def build_cpm_table(selected_formats, selected_geos, custom_geo_mult=0.20):
+def build_cpm_table(selected_formats, selected_geos, custom_geo_mult=0.20, variance=0.12):
+    """Build CPM rate card. Each call applies ±variance% random noise per cell (2 d.p.)."""
     if not selected_formats or not selected_geos:
         return "  [Select formats and GEOs to generate rate card]"
     fmt_w, col_w = 22, 13
@@ -254,9 +256,10 @@ def build_cpm_table(selected_formats, selected_geos, custom_geo_mult=0.20):
         base = CPM_BASE.get(fmt, 5.0)
         row  = f"  {fmt:<{fmt_w}}"
         for g in selected_geos:
-            mult = GEO_DATA[g]["mult"] if g in GEO_DATA else custom_geo_mult
-            cpm  = base * mult
-            row += f"${cpm:>{col_w - 2}.2f}   "
+            mult  = GEO_DATA[g]["mult"] if g in GEO_DATA else custom_geo_mult
+            noise = random.uniform(1 - variance, 1 + variance)
+            cpm   = round(base * mult * noise, 2)
+            row  += f"${cpm:>{col_w - 2}.2f}   "
         rows.append(row)
     return "\n".join(rows)
 
@@ -276,7 +279,7 @@ def substitute(template, data):
         "<<FORMATS_BULLETED>>": formats_bulleted,
         "<<GEOS>>":             data.get("geos_str",      "[GEOs]"),
         "<<FLIGHT>>":           data.get("flight",        "[Flight Period]"),
-        "<<CPM_TABLE>>":        data.get("cpm_table",     "[CPM Table]"),
+        # <<CPM_TABLE>> is handled per-variation in make_variations
         "<<TODAY_DATE>>":       date.today().strftime("%B %d, %Y"),
     }
     for k, v in subs.items():
@@ -284,14 +287,18 @@ def substitute(template, data):
     return template
 
 
-def make_variations(subject_tpl, body_tpl, data, n):
+def make_variations(subject_tpl, body_tpl, data, n, fmt_list, geo_list, custom_mult):
+    """Generate n unique variations; each gets a freshly spun CPM table."""
     filled_subj = substitute(subject_tpl, data) if subject_tpl else None
     filled_body = substitute(body_tpl, data)
     results = []
     for _ in range(n):
+        # Fresh CPM table per variation (different random noise each time)
+        cpm_table = build_cpm_table(fmt_list, geo_list, custom_mult)
+        body_with_cpm = filled_body.replace("<<CPM_TABLE>>", cpm_table)
         results.append({
             "subject": spin(filled_subj) if filled_subj else None,
-            "body":    spin(filled_body),
+            "body":    spin(body_with_cpm),
         })
     return results
 
@@ -395,11 +402,11 @@ if generate_btn:
             "formats_list":  selected_formats,
             "geos_str":      ", ".join(selected_geos),
             "flight":        flight,
-            "cpm_table":     build_cpm_table(selected_formats, selected_geos, custom_geo_mult),
+            # cpm_table injected per-variation in make_variations
         }
 
         tpl = TEMPLATE_MAP[template_choice]
-        st.session_state["variations"]    = make_variations(tpl["subject"], tpl["body"], data, n_variations)
+        st.session_state["variations"]    = make_variations(tpl["subject"], tpl["body"], data, n_variations, selected_formats, selected_geos, custom_geo_mult)
         st.session_state["is_email"]      = tpl["is_email"]
         st.session_state["template_name"] = template_choice
 
