@@ -1,7 +1,16 @@
 import streamlit as st
 import random
-from datetime import date
+import requests as _requests
+from datetime import date, datetime
 from spintax import spin
+
+# Optional dependency — graceful fallback if gspread not installed yet
+try:
+    import gspread
+    from google.oauth2.service_account import Credentials
+    _GSPREAD_OK = True
+except ImportError:
+    _GSPREAD_OK = False
 
 # ── Page config ───────────────────────────────────────────────────────────────
 st.set_page_config(
@@ -17,6 +26,70 @@ st.markdown("""
     code { white-space: pre-wrap !important; }
 </style>
 """, unsafe_allow_html=True)
+
+# ── Secrets / Sheet config ────────────────────────────────────────────────────
+def _sheet_configured():
+    try:
+        _ = st.secrets["sheet_id"]
+        _ = st.secrets["gcp_service_account"]
+        return _GSPREAD_OK
+    except Exception:
+        return False
+
+def _webapp_configured():
+    try:
+        return bool(st.secrets["webapp_url"])
+    except Exception:
+        return False
+
+SHEET_OK  = _sheet_configured()
+WEBAPP_OK = _webapp_configured()
+
+# Sheet columns — A through J (matches existing sheet + appended cols G-J)
+SHEET_COLS = [
+    "Email",      # A — recipient
+    "Name",       # B
+    "Company",    # C
+    "App_Name",   # D
+    "Status",     # E — Queued / Sent / Failed
+    "Approach",   # F — template label
+    "Subject",    # G — generated subject line
+    "Body",       # H — generated email body
+    "Timestamp",  # I — when row was written
+    "Sent_At",    # J — when Apps Script sent it
+]
+
+@st.cache_resource(show_spinner=False)
+def _get_sheet():
+    scope = ["https://spreadsheets.google.com/feeds",
+             "https://www.googleapis.com/auth/drive"]
+    creds = Credentials.from_service_account_info(
+                dict(st.secrets["gcp_service_account"]), scopes=scope)
+    gc    = gspread.authorize(creds)
+    # Open the "Emails" tab directly — headers are already in place
+    wb    = gc.open_by_key(st.secrets["sheet_id"])
+    sheet = wb.worksheet("Emails")
+    # Auto-add new columns G-J if not present yet
+    headers = sheet.row_values(1)
+    for col_name in ["Subject", "Body", "Timestamp", "Sent_At"]:
+        if col_name not in headers:
+            sheet.update_cell(1, len(headers) + 1, col_name)
+            headers.append(col_name)
+    return sheet
+
+def append_to_sheet(row: list) -> int:
+    sheet = _get_sheet()
+    sheet.append_row(row, value_input_option="USER_ENTERED")
+    return sheet.row_count
+
+def trigger_send_now(row_number: int) -> bool:
+    try:
+        url  = st.secrets["webapp_url"]
+        resp = _requests.post(url, json={"row": row_number}, timeout=15)
+        data = resp.json()
+        return data.get("success", False)
+    except Exception:
+        return False
 
 # ── Static data ───────────────────────────────────────────────────────────────
 VERTICALS_BRANDS = {
@@ -45,12 +118,12 @@ FLIGHT_OPTIONS = [
 ]
 
 GEO_DATA = {
-    "US":     {"countries": "United States",                                           "mult": 1.00},
-    "Tier 1": {"countries": "UK, Canada, Australia, Germany, France",                  "mult": 0.60},
-    "Tier 2": {"countries": "Brazil, Mexico, Japan, South Korea, Spain, Italy",         "mult": 0.35},
-    "Tier 3": {"countries": "Indonesia, Thailand, Vietnam, Philippines, Turkey, Poland","mult": 0.15},
-    "Tier 4": {"countries": "India, Pakistan, Nigeria, Egypt, Bangladesh",              "mult": 0.08},
-    "ROW":    {"countries": "Rest of World",                                            "mult": 0.06},
+    "US":     {"countries": "United States",                                            "mult": 1.00},
+    "Tier 1": {"countries": "UK, Canada, Australia, Germany, France",                   "mult": 0.60},
+    "Tier 2": {"countries": "Brazil, Mexico, Japan, South Korea, Spain, Italy",          "mult": 0.35},
+    "Tier 3": {"countries": "Indonesia, Thailand, Vietnam, Philippines, Turkey, Poland", "mult": 0.15},
+    "Tier 4": {"countries": "India, Pakistan, Nigeria, Egypt, Bangladesh",               "mult": 0.08},
+    "ROW":    {"countries": "Rest of World",                                             "mult": 0.06},
 }
 
 ALL_FORMATS = [
@@ -226,18 +299,18 @@ BRIEF_BODY = """\
 
 TEMPLATE_MAP = {
     "📧 Outreach Email": {
-        "subject": OUTREACH_SUBJECT,
-        "body":    OUTREACH_BODY,
+        "subject":  OUTREACH_SUBJECT,
+        "body":     OUTREACH_BODY,
         "is_email": True,
     },
     "🔁 Follow-Up Email": {
-        "subject": FOLLOWUP_SUBJECT,
-        "body":    FOLLOWUP_BODY,
+        "subject":  FOLLOWUP_SUBJECT,
+        "body":     FOLLOWUP_BODY,
         "is_email": True,
     },
     "📋 Agency Campaign Brief": {
-        "subject": None,
-        "body":    BRIEF_BODY,
+        "subject":  None,
+        "body":     BRIEF_BODY,
         "is_email": False,
     },
 }
@@ -245,13 +318,13 @@ TEMPLATE_MAP = {
 # ── Helper functions ──────────────────────────────────────────────────────────
 
 def build_cpm_table(selected_formats, selected_geos, custom_geo_mult=0.20, variance=0.12):
-    """Build CPM rate card. Each call applies ±variance% random noise per cell (2 d.p.)."""
+    """Build CPM rate card. Each call applies +-variance% random noise per cell (2 d.p.)."""
     if not selected_formats or not selected_geos:
         return "  [Select formats and GEOs to generate rate card]"
     fmt_w, col_w = 22, 13
     header  = f"  {'Format':<{fmt_w}}" + "".join(f"{'CPM (' + g + ')':>{col_w}}" for g in selected_geos)
     divider = "  " + "─" * (fmt_w + col_w * len(selected_geos))
-    rows = [header, divider]
+    rows    = [header, divider]
     for fmt in selected_formats:
         base = CPM_BASE.get(fmt, 5.0)
         row  = f"  {fmt:<{fmt_w}}"
@@ -266,8 +339,8 @@ def build_cpm_table(selected_formats, selected_geos, custom_geo_mult=0.20, varia
 
 def substitute(template, data):
     formats_bulleted = (
-        "\n".join(f"    • {f}" for f in data["formats_list"])
-        if data["formats_list"] else "    • [No formats selected]"
+        "\n".join(f"    \u2022 {f}" for f in data["formats_list"])
+        if data["formats_list"] else "    \u2022 [No formats selected]"
     )
     subs = {
         "<<PROSPECT_NAME>>":    data.get("prospect_name", "[Publisher Name]"),
@@ -279,7 +352,7 @@ def substitute(template, data):
         "<<FORMATS_BULLETED>>": formats_bulleted,
         "<<GEOS>>":             data.get("geos_str",      "[GEOs]"),
         "<<FLIGHT>>":           data.get("flight",        "[Flight Period]"),
-        # <<CPM_TABLE>> is handled per-variation in make_variations
+        # <<CPM_TABLE>> is injected per-variation in make_variations
         "<<TODAY_DATE>>":       date.today().strftime("%B %d, %Y"),
     }
     for k, v in subs.items():
@@ -293,14 +366,46 @@ def make_variations(subject_tpl, body_tpl, data, n, fmt_list, geo_list, custom_m
     filled_body = substitute(body_tpl, data)
     results = []
     for _ in range(n):
-        # Fresh CPM table per variation (different random noise each time)
-        cpm_table = build_cpm_table(fmt_list, geo_list, custom_mult)
+        cpm_table     = build_cpm_table(fmt_list, geo_list, custom_mult)
         body_with_cpm = filled_body.replace("<<CPM_TABLE>>", cpm_table)
         results.append({
             "subject": spin(filled_subj) if filled_subj else None,
             "body":    spin(body_with_cpm),
         })
     return results
+
+
+def do_send(var, to_email, template_name, prospect_name, company, app_name, send_mode):
+    """Write row to Sheet and optionally trigger immediate send via Apps Script Web App."""
+    if not SHEET_OK:
+        return False, "Sheet not configured — see README for secrets setup."
+
+    now      = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+    subject  = var.get("subject") or ""
+    body     = var.get("body") or ""
+    # Column order: A=Email, B=Name, C=Company, D=App_Name,
+    #               E=Status, F=Approach, G=Subject, H=Body, I=Timestamp, J=Sent_At
+    row_data = [
+        to_email, prospect_name, company, app_name,
+        "Queued", template_name, subject, body, now, ""
+    ]
+
+    try:
+        row_number = append_to_sheet(row_data)
+    except Exception as e:
+        return False, f"Sheet write failed: {e}"
+
+    if send_mode == "Send Now":
+        if not WEBAPP_OK:
+            return True, "Queued to sheet (no webapp_url — will send on next trigger run)"
+        ok = trigger_send_now(row_number)
+        if ok:
+            return True, f"Sent immediately via Apps Script (row {row_number})"
+        else:
+            return True, f"Sheet write OK, Web App trigger failed — will send on queue run (row {row_number})"
+
+    return True, f"Queued to sheet (row {row_number}) — Apps Script will send on next trigger"
+
 
 # ── Sidebar ───────────────────────────────────────────────────────────────────
 with st.sidebar:
@@ -309,8 +414,10 @@ with st.sidebar:
     st.divider()
 
     st.subheader("📋 Prospect Info")
-    prospect_name = st.text_input("Publisher / Contact Name", placeholder="e.g. John Kim")
-    app_name      = st.text_input("App Name", placeholder="e.g. Puzzle Adventure")
+    prospect_name  = st.text_input("Publisher / Contact Name", placeholder="e.g. John Kim")
+    company        = st.text_input("Company / Studio", placeholder="e.g. AppCo Ltd")
+    app_name       = st.text_input("App Name", placeholder="e.g. Puzzle Adventure")
+    prospect_email = st.text_input("Prospect Email", placeholder="e.g. john@appco.com")
 
     st.divider()
     st.subheader("🏷️ Campaign Details")
@@ -323,6 +430,7 @@ with st.sidebar:
     else:
         vertical   = vertical_choice
         brand_opts = VERTICALS_BRANDS[vertical_choice] + ["Custom"]
+
     brand_choice = st.selectbox("Brand / Advertiser", brand_opts)
     if brand_choice == "Custom":
         brand = st.text_input("Enter brand name", placeholder="e.g. Coca-Cola")
@@ -338,52 +446,47 @@ with st.sidebar:
     flight = st.selectbox("Flight Period", FLIGHT_OPTIONS, index=1)
 
     geo_opts      = list(GEO_DATA.keys()) + ["Custom"]
-    selected_geos = st.multiselect(
-        "Target GEOs",
-        geo_opts,
-        default=["US", "Tier 1"],
-    )
-    custom_geo_mult = 0.20  # default, only used if Custom GEO is selected
+    selected_geos = st.multiselect("Target GEOs", geo_opts, default=["US", "Tier 1"])
+    custom_geo_mult = 0.20
     if "Custom" in selected_geos:
         custom_geo = st.text_input("Custom GEO(s)", placeholder="e.g. MENA, LATAM, SEA")
         custom_geo_mult = st.number_input(
             "Fallback CPM multiplier for custom GEO",
-            min_value=0.01, max_value=1.00,
-            value=0.20, step=0.01,
-            help="Applied to base CPM rates. e.g. 0.20 = 20% of US rate. Ref: Tier 1=0.60 · Tier 2=0.35 · Tier 3=0.15",
+            min_value=0.01, max_value=1.00, value=0.20, step=0.01,
+            help="Ref: Tier 1=0.60 · Tier 2=0.35 · Tier 3=0.15 · Tier 4=0.08",
         )
         selected_geos = [g for g in selected_geos if g != "Custom"]
         if custom_geo.strip():
             selected_geos.append(custom_geo.strip())
 
     selected_formats = st.multiselect(
-        "Ad Formats",
-        ALL_FORMATS,
-        default=["Rewarded Video", "Interstitial"],
+        "Ad Formats", ALL_FORMATS, default=["Rewarded Video", "Interstitial"]
     )
 
     st.divider()
     st.subheader("⚙️ Generate")
     n_variations = st.slider("Number of variations", min_value=1, max_value=10, value=3)
-    generate_btn = st.button(
-        "🎲 Generate Variations",
-        use_container_width=True,
-        type="primary",
-    )
+    generate_btn = st.button("🎲 Generate Variations", use_container_width=True, type="primary")
+
+    # Sheet connection status
+    st.divider()
+    if SHEET_OK:
+        st.success("📊 Sheet connected", icon="✅")
+        if WEBAPP_OK:
+            st.success("⚡ Send Now enabled", icon="✅")
+        else:
+            st.info("🕐 Queue mode only\n(add webapp_url to enable Send Now)", icon="ℹ️")
+    else:
+        st.warning("Sheet not configured\nSee README → Secrets Setup", icon="⚠️")
 
 # ── Main area ─────────────────────────────────────────────────────────────────
 st.title("Direct Deal Spintax Generator")
 st.caption("PremiumAds · Google Certified Publishing Partner · premiumads.net")
 
-# Template selector
-template_choice = st.radio(
-    "Template",
-    list(TEMPLATE_MAP.keys()),
-    horizontal=True,
-)
+template_choice = st.radio("Template", list(TEMPLATE_MAP.keys()), horizontal=True)
 st.divider()
 
-# Generate
+# ── Generate ──────────────────────────────────────────────────────────────────
 if generate_btn:
     if not brand or (brand_choice == "Custom" and not brand.strip()):
         st.warning("Please enter a brand name.")
@@ -395,45 +498,111 @@ if generate_btn:
         data = {
             "prospect_name": prospect_name.strip() or "[Publisher Name]",
             "app_name":      app_name.strip()      or "[App Name]",
-            "brand":         (brand.strip() if brand_choice == "Custom" else brand_choice),
-            "budget":        (budget.strip() if budget_choice == "Custom" else budget_choice),
+            "brand":         brand.strip() if brand_choice == "Custom" else brand_choice,
+            "budget":        budget.strip() if budget_choice == "Custom" else budget_choice,
             "vertical":      vertical,
             "formats_str":   ", ".join(selected_formats),
             "formats_list":  selected_formats,
             "geos_str":      ", ".join(selected_geos),
             "flight":        flight,
-            # cpm_table injected per-variation in make_variations
         }
-
         tpl = TEMPLATE_MAP[template_choice]
-        st.session_state["variations"]    = make_variations(tpl["subject"], tpl["body"], data, n_variations, selected_formats, selected_geos, custom_geo_mult)
-        st.session_state["is_email"]      = tpl["is_email"]
-        st.session_state["template_name"] = template_choice
+        st.session_state["variations"]     = make_variations(
+            tpl["subject"], tpl["body"], data,
+            n_variations, selected_formats, selected_geos, custom_geo_mult,
+        )
+        st.session_state["is_email"]       = tpl["is_email"]
+        st.session_state["template_name"]  = template_choice
+        st.session_state["prospect_email"] = prospect_email.strip()
+        st.session_state["prospect_name"]  = prospect_name.strip() or "[Publisher Name]"
+        st.session_state["company_saved"]  = company.strip()       or ""
+        st.session_state["app_name_saved"] = app_name.strip()      or "[App Name]"
+        st.session_state.pop("send_status", None)   # reset statuses on re-generate
 
-# Display
+# ── Display & Send ────────────────────────────────────────────────────────────
 if "variations" in st.session_state and st.session_state["variations"]:
     variations    = st.session_state["variations"]
     is_email      = st.session_state["is_email"]
     template_name = st.session_state["template_name"]
+    saved_email   = st.session_state.get("prospect_email", "")
+    saved_name    = st.session_state.get("prospect_name",  "[Publisher Name]")
+    saved_company = st.session_state.get("company_saved",  "")
+    saved_app     = st.session_state.get("app_name_saved", "[App Name]")
+
+    if "send_status" not in st.session_state:
+        st.session_state["send_status"] = {}
 
     st.subheader(f"✅ {len(variations)} variation{'s' if len(variations) > 1 else ''} — {template_name}")
 
     for i, var in enumerate(variations):
-        label = f"Variation {i + 1}"
-        with st.expander(label, expanded=(i == 0)):
+        with st.expander(f"Variation {i + 1}", expanded=(i == 0)):
+
+            # Content preview
             if is_email and var["subject"]:
-                st.markdown(f"**Subject line:**")
+                st.markdown("**Subject line:**")
                 st.code(var["subject"], language="text")
                 st.markdown("**Email body:**")
             st.code(var["body"], language="text")
+
+            # Send section
+            st.divider()
+            st.markdown("**📤 Send this variation**")
+
+            to_email_input = st.text_input(
+                "To", value=saved_email,
+                placeholder="publisher@example.com",
+                key=f"to_{i}",
+                label_visibility="collapsed",
+            )
+
+            status_key = f"v{i}"
+            existing   = st.session_state["send_status"].get(status_key)
+
+            if existing:
+                icon = "✅" if existing["ok"] else "⚠️"
+                st.markdown(f"{icon} `{existing['msg']}`")
+                if st.button("↩ Re-send", key=f"resend_{i}"):
+                    st.session_state["send_status"].pop(status_key, None)
+                    st.rerun()
+            else:
+                c1, c2 = st.columns(2)
+                with c1:
+                    send_now = st.button(
+                        "⚡ Send Now", key=f"now_{i}",
+                        use_container_width=True, type="primary",
+                        disabled=not SHEET_OK,
+                        help="Sends immediately via Apps Script Web App" if SHEET_OK else "Configure secrets first",
+                    )
+                with c2:
+                    queue = st.button(
+                        "🕐 Add to Queue", key=f"queue_{i}",
+                        use_container_width=True,
+                        disabled=not SHEET_OK,
+                        help="Adds to Sheet; time trigger will process it" if SHEET_OK else "Configure secrets first",
+                    )
+
+                if send_now or queue:
+                    if not to_email_input.strip():
+                        st.warning("Enter a recipient email first.")
+                    else:
+                        mode = "Send Now" if send_now else "Queued"
+                        with st.spinner("Writing to Sheet…"):
+                            ok, msg = do_send(
+                                var, to_email_input.strip(),
+                                template_name, saved_name, saved_company, saved_app, mode,
+                            )
+                        st.session_state["send_status"][status_key] = {"ok": ok, "msg": msg}
+                        st.rerun()
+
 else:
     col1, col2, col3 = st.columns([1, 2, 1])
     with col2:
         st.info(
             "**Getting started:**\n\n"
-            "1. Fill in **Prospect Info** and **Campaign Details** in the sidebar\n"
+            "1. Fill in **Prospect Info** (including email) in the sidebar\n"
             "2. Select a **template** above\n"
-            "3. Click **Generate Variations**\n\n"
+            "3. Click **Generate Variations**\n"
+            "4. Use **⚡ Send Now** or **🕐 Add to Queue** per variation\n\n"
             "_Each variation is a unique spin of the selected template._"
         )
 
