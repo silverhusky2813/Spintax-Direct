@@ -63,8 +63,11 @@ SHEET_COLS = [
 def _get_sheet():
     scope = ["https://spreadsheets.google.com/feeds",
              "https://www.googleapis.com/auth/drive"]
-    creds = Credentials.from_service_account_info(
-                dict(st.secrets["gcp_service_account"]), scopes=scope)
+    sa_info = dict(st.secrets["gcp_service_account"])
+    # Normalise private key — handles literal \n stored as text or actual newlines
+    if "private_key" in sa_info:
+        sa_info["private_key"] = sa_info["private_key"].replace("\\n", "\n")
+    creds = Credentials.from_service_account_info(sa_info, scopes=scope)
     gc    = gspread.authorize(creds)
     # Open the "Emails" tab directly — headers are already in place
     wb    = gc.open_by_key(st.secrets["sheet_id"])
