@@ -149,8 +149,9 @@ CPM_BASE = {
 # ── Spintax templates ─────────────────────────────────────────────────────────
 
 OUTREACH_SUBJECT = (
-    "{Exclusive|Confirmed|Active} {campaign opportunity|media buy|advertiser interest}"
-    " — <<VERTICAL>> | <<APP_NAME>>"
+    "{<<BRAND>> × <<APP_NAME>> — {Direct Deal Opportunity|Exclusive Campaign Invite|Premium Media Proposal}"
+    "|{Active|Confirmed|Live} {Campaign|Budget|Deal}: <<BRAND>> for <<APP_NAME>>"
+    "|<<APP_NAME>> × <<BRAND>>: {Direct Deal Available|Worth a Quick Call?|Partnership Opportunity}}"
 )
 
 OUTREACH_BODY = """\
@@ -189,8 +190,9 @@ premiumads.net\
 """
 
 FOLLOWUP_SUBJECT = (
-    "{Following up — |Re: }{Confirmed {campaign|deal}|{Active|Exclusive} media buy}"
-    " — <<BRAND>> x <<APP_NAME>>"
+    "{{Following Up|Circling Back|Quick Check-In} — <<BRAND>> × <<APP_NAME>>"
+    "|Re: <<BRAND>> × <<APP_NAME>> — {Still Interested?|Any Thoughts?|Worth Revisiting?}"
+    "|<<BRAND>> × <<APP_NAME>>: {Still on the Table|One More Thought|Last Note}}"
 )
 
 FOLLOWUP_BODY = """\
@@ -302,6 +304,12 @@ BRIEF_BODY = """\
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\
 """
 
+BRIEF_SUBJECT = (
+    "{Campaign Brief: <<BRAND>> × <<APP_NAME>> — <<VERTICAL>>"
+    "|<<BRAND>> Partnership Proposal — <<APP_NAME>>"
+    "|Media Buy Brief: <<BRAND>> | <<VERTICAL>> | <<APP_NAME>>}"
+)
+
 TEMPLATE_MAP = {
     "📧 Outreach Email": {
         "subject":  OUTREACH_SUBJECT,
@@ -314,9 +322,9 @@ TEMPLATE_MAP = {
         "is_email": True,
     },
     "📋 Agency Campaign Brief": {
-        "subject":  None,
+        "subject":  BRIEF_SUBJECT,
         "body":     BRIEF_BODY,
-        "is_email": False,
+        "is_email": True,
     },
 }
 
@@ -551,8 +559,11 @@ if "variations" in st.session_state and st.session_state["variations"]:
 
             # Content preview
             if is_email and var["subject"]:
-                st.markdown("**Subject line:**")
-                st.code(var["subject"], language="text")
+                subject_edited = st.text_input(
+                    "Subject line:",
+                    value=var["subject"],
+                    key=f"subject_{i}",
+                )
                 st.markdown("**Email body:**")
             st.code(var["body"], language="text")
 
@@ -598,9 +609,13 @@ if "variations" in st.session_state and st.session_state["variations"]:
                         st.warning("Enter a recipient email first.")
                     else:
                         mode = "Send Now" if send_now else "Queued"
+                        # Use edited subject from text_input if available
+                        edited_var = dict(var)
+                        if is_email and var.get("subject"):
+                            edited_var["subject"] = st.session_state.get(f"subject_{i}", var["subject"])
                         with st.spinner("Writing to Sheet…"):
                             ok, msg = do_send(
-                                var, to_email_input.strip(),
+                                edited_var, to_email_input.strip(),
                                 template_name, saved_name, saved_company, saved_app, mode,
                             )
                         st.session_state["send_status"][status_key] = {"ok": ok, "msg": msg}
