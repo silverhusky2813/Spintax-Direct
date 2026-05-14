@@ -31,7 +31,7 @@ st.markdown("""
 def _sheet_configured():
     try:
         _ = st.secrets["sheet_id"]
-        _ = st.secrets["gcp_service_account"]
+        _ = st.secrets["service_account_b64"]
         return _GSPREAD_OK
     except Exception:
         return False
