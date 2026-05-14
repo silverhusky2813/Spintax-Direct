@@ -61,12 +61,11 @@ SHEET_COLS = [
 
 @st.cache_resource(show_spinner=False)
 def _get_sheet():
+    import base64, json as _json
     scope = ["https://spreadsheets.google.com/feeds",
              "https://www.googleapis.com/auth/drive"]
-    sa_info = dict(st.secrets["gcp_service_account"])
-    # Normalise private key — handles literal \n stored as text or actual newlines
-    if "private_key" in sa_info:
-        sa_info["private_key"] = sa_info["private_key"].replace("\\n", "\n")
+    # Decode service account from base64 — avoids all TOML / newline issues
+    sa_info = _json.loads(base64.b64decode(st.secrets["service_account_b64"]).decode())
     creds = Credentials.from_service_account_info(sa_info, scopes=scope)
     gc    = gspread.authorize(creds)
     # Open the "Emails" tab directly — headers are already in place
