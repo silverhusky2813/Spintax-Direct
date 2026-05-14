@@ -149,9 +149,9 @@ CPM_BASE = {
 # ── Spintax templates ─────────────────────────────────────────────────────────
 
 OUTREACH_SUBJECT = (
-    "{<<BRAND>> × <<APP_NAME>> — {Direct Deal Opportunity|Exclusive Campaign Invite|Premium Media Proposal}"
-    "|{Active|Confirmed|Live} {Campaign|Budget|Deal}: <<BRAND>> for <<APP_NAME>>"
-    "|<<APP_NAME>> × <<BRAND>>: {Direct Deal Available|Worth a Quick Call?|Partnership Opportunity}}"
+    "{<<BRAND>> Campaign: Direct Deal for <<APP_NAME>>|"
+    "Active Budget Alert — <<BRAND>> × <<APP_NAME>>|"
+    "<<APP_NAME>> Shortlisted: <<BRAND>> Direct Deal}"
 )
 
 OUTREACH_BODY = """\
@@ -190,9 +190,9 @@ premiumads.net\
 """
 
 FOLLOWUP_SUBJECT = (
-    "{{Following Up|Circling Back|Quick Check-In} — <<BRAND>> × <<APP_NAME>>"
-    "|Re: <<BRAND>> × <<APP_NAME>> — {Still Interested?|Any Thoughts?|Worth Revisiting?}"
-    "|<<BRAND>> × <<APP_NAME>>: {Still on the Table|One More Thought|Last Note}}"
+    "{Re: <<BRAND>> × <<APP_NAME>> — Still Available|"
+    "Following Up: <<BRAND>> Deal for <<APP_NAME>>|"
+    "<<BRAND>> × <<APP_NAME>> — One Last Note}"
 )
 
 FOLLOWUP_BODY = """\
@@ -305,9 +305,9 @@ BRIEF_BODY = """\
 """
 
 BRIEF_SUBJECT = (
-    "{Campaign Brief: <<BRAND>> × <<APP_NAME>> — <<VERTICAL>>"
-    "|<<BRAND>> Partnership Proposal — <<APP_NAME>>"
-    "|Media Buy Brief: <<BRAND>> | <<VERTICAL>> | <<APP_NAME>>}"
+    "{Campaign Brief: <<BRAND>> × <<APP_NAME>>|"
+    "<<BRAND>> Media Proposal — <<VERTICAL>>|"
+    "Partnership Brief: <<BRAND>> for <<APP_NAME>>}"
 )
 
 TEMPLATE_MAP = {
@@ -527,10 +527,11 @@ if generate_btn:
             "flight":        flight,
         }
         tpl = TEMPLATE_MAP[template_choice]
-        st.session_state["variations"]     = make_variations(
+        variations = make_variations(
             tpl["subject"], tpl["body"], data,
             n_variations, selected_formats, selected_geos, custom_geo_mult,
         )
+        st.session_state["variations"]     = variations
         st.session_state["is_email"]       = tpl["is_email"]
         st.session_state["template_name"]  = template_choice
         st.session_state["prospect_email"] = prospect_email.strip()
@@ -538,6 +539,10 @@ if generate_btn:
         st.session_state["company_saved"]  = company.strip()       or ""
         st.session_state["app_name_saved"] = app_name.strip()      or "[App Name]"
         st.session_state.pop("send_status", None)   # reset statuses on re-generate
+        # Seed editable subject/body fields for each variation
+        for idx, var in enumerate(variations):
+            st.session_state[f"subject_{idx}"] = var["subject"] or ""
+            st.session_state[f"body_{idx}"]    = var["body"]    or ""
 
 # ── Display & Send ────────────────────────────────────────────────────────────
 if "variations" in st.session_state and st.session_state["variations"]:
@@ -557,15 +562,21 @@ if "variations" in st.session_state and st.session_state["variations"]:
     for i, var in enumerate(variations):
         with st.expander(f"Variation {i + 1}", expanded=(i == 0)):
 
-            # Content preview
-            if is_email and var["subject"]:
-                subject_edited = st.text_input(
-                    "Subject line:",
-                    value=var["subject"],
+            # Content preview — fully editable
+            if is_email and var["subject"] is not None:
+                st.markdown("**Subject line:**")
+                st.text_input(
+                    "Subject line",
                     key=f"subject_{i}",
+                    label_visibility="collapsed",
                 )
                 st.markdown("**Email body:**")
-            st.code(var["body"], language="text")
+            st.text_area(
+                "Email body",
+                key=f"body_{i}",
+                height=420,
+                label_visibility="collapsed",
+            )
 
             # Send section
             st.divider()
@@ -609,10 +620,11 @@ if "variations" in st.session_state and st.session_state["variations"]:
                         st.warning("Enter a recipient email first.")
                     else:
                         mode = "Send Now" if send_now else "Queued"
-                        # Use edited subject from text_input if available
-                        edited_var = dict(var)
-                        if is_email and var.get("subject"):
-                            edited_var["subject"] = st.session_state.get(f"subject_{i}", var["subject"])
+                        # Use edited subject/body from session_state
+                        edited_var = {
+                            "subject": st.session_state.get(f"subject_{i}", var.get("subject", "")),
+                            "body":    st.session_state.get(f"body_{i}",    var.get("body",    "")),
+                        }
                         with st.spinner("Writing to Sheet…"):
                             ok, msg = do_send(
                                 edited_var, to_email_input.strip(),
