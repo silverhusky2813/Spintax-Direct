@@ -45,44 +45,47 @@ def _webapp_configured():
 SHEET_OK  = _sheet_configured()
 WEBAPP_OK = _webapp_configured()
 
-# Sheet columns — A through J (matches existing sheet + appended cols G-J)
-SHEET_COLS = [
-    "Email",      # A — recipient
-    "Name",       # B
-    "Company",    # C
-    "App_Name",   # D
-    "Status",     # E — Queued / Sent / Failed
-    "Approach",   # F — template label
-    "Subject",    # G — generated subject line
-    "Body",       # H — generated email body
-    "Timestamp",  # I — when row was written
-    "Sent_At",    # J — when Apps Script sent it
-]
+# Required sheet columns — app ensures these exist and writes by name
+REQUIRED_COLS = ["Email", "Name", "Company", "App_Name", "Status",
+                 "Approach", "Subject", "Body", "Timestamp", "Sent_At"]
 
 @st.cache_resource(show_spinner=False)
 def _get_sheet():
     import base64, json as _json
     scope = ["https://spreadsheets.google.com/feeds",
              "https://www.googleapis.com/auth/drive"]
-    # Decode service account from base64 — avoids all TOML / newline issues
     sa_info = _json.loads(base64.b64decode(st.secrets["service_account_b64"]).decode())
-    creds = Credentials.from_service_account_info(sa_info, scopes=scope)
-    gc    = gspread.authorize(creds)
-    # Open the "Emails" tab directly — headers are already in place
-    wb    = gc.open_by_key(st.secrets["sheet_id"])
-    sheet = wb.worksheet("Emails")
-    # Auto-add new columns G-J if not present yet
+    creds   = Credentials.from_service_account_info(sa_info, scopes=scope)
+    gc      = gspread.authorize(creds)
+    wb      = gc.open_by_key(st.secrets["sheet_id"])
+    sheet   = wb.worksheet("Emails")
+    # Ensure all required headers exist; add any missing ones at the end
     headers = sheet.row_values(1)
-    for col_name in ["Subject", "Body", "Timestamp", "Sent_At"]:
+    for col_name in REQUIRED_COLS:
         if col_name not in headers:
             sheet.update_cell(1, len(headers) + 1, col_name)
             headers.append(col_name)
     return sheet
 
-def append_to_sheet(row: list) -> int:
+def _get_col_map():
+    """Return {header_name: col_index_1based} from row 1."""
     sheet = _get_sheet()
-    sheet.append_row(row, value_input_option="USER_ENTERED")
-    return sheet.row_count
+    headers = sheet.row_values(1)
+    return {h: i + 1 for i, h in enumerate(headers)}
+
+def append_to_sheet(data: dict) -> int:
+    """Write a row by header name. Returns the actual 1-based row number written."""
+    sheet   = _get_sheet()
+    col_map = _get_col_map()
+    # Find next empty row
+    all_vals = sheet.get_all_values()
+    next_row = len(all_vals) + 1
+    # Write each field to the correct column
+    for field, value in data.items():
+        col = col_map.get(field)
+        if col:
+            sheet.update_cell(next_row, col, value)
+    return next_row
 
 def trigger_send_now(row_number: int) -> bool:
     try:
@@ -382,15 +385,22 @@ def do_send(var, to_email, template_name, prospect_name, company, app_name, send
     if not SHEET_OK:
         return False, "Sheet not configured — see README for secrets setup."
 
-    now      = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-    subject  = var.get("subject") or ""
-    body     = var.get("body") or ""
-    # Column order: A=Email, B=Name, C=Company, D=App_Name,
-    #               E=Status, F=Approach, G=Subject, H=Body, I=Timestamp, J=Sent_At
-    row_data = [
-        to_email, prospect_name, company, app_name,
-        "Queued", template_name, subject, body, now, ""
-    ]
+    now     = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+    subject = var.get("subject") or ""
+    body    = var.get("body") or ""
+    # Write by column name — robust to any sheet column order
+    row_data = {
+        "Email":     to_email,
+        "Name":      prospect_name,
+        "Company":   company,
+        "App_Name":  app_name,
+        "Status":    "Queued",
+        "Approach":  template_name,
+        "Subject":   subject,
+        "Body":      body,
+        "Timestamp": now,
+        "Sent_At":   "",
+    }
 
     try:
         row_number = append_to_sheet(row_data)
