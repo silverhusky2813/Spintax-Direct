@@ -149,39 +149,30 @@ CPM_BASE = {
 # ── Spintax templates ─────────────────────────────────────────────────────────
 
 OUTREACH_SUBJECT = (
-    "{<<BRAND>> Campaign: Direct Deal for <<APP_NAME>>|"
-    "Active Budget Alert — <<BRAND>> × <<APP_NAME>>|"
-    "<<APP_NAME>> Shortlisted: <<BRAND>> Direct Deal}"
+    "{<<APP_NAME>> × <<VERTICAL>> Direct Deal Allocation|"
+    "Active Campaign Brief: <<APP_NAME>> Premium Inventory|"
+    "Shortlisted: Upcoming Seasonal Budget for <<APP_NAME>>|"
+    "Reserved Media Buy: {<<BRAND>>|Top <<VERTICAL>> Brand} Targeting <<APP_NAME>>}"
 )
 
 OUTREACH_BODY = """\
 Hi <<PROSPECT_NAME>>,
 
-{I'm reaching out because we have|Quick note — we've secured|Hope you're doing well. We have} a \
-{confirmed|live|active} {direct deal|brand campaign|media buy} from <<BRAND>> {with budget \
-specifically allocated for|actively targeting|looking for} <<VERTICAL>> {mobile app|in-app|app} \
-{inventory|audiences|placements} {this quarter|in the coming weeks|for the current period}.
+{As we head into the new quarter, we are locking in|We are currently mapping out seasonal inventory for|Our trading desk is finalizing upcoming flight allocations for} {a major <<VERTICAL>> brand|several top-tier <<VERTICAL>> advertisers (including <<BRAND>>)|<<BRAND>>}. 
 
-{Here's a quick snapshot|Campaign overview|What we have on the table}:
+They have {active budget|dedicated spend|a live media buy} earmarked specifically for {high-performing|premium|highly engaged} <<VERTICAL>> audiences, and <<APP_NAME>> {hit all their targeting parameters|was flagged by our programmatic team as a direct match|surfaced as a priority target}.
 
-  Brand / Advertiser  :  <<BRAND>>
-  {Campaign budget|Allocated spend}  :  <<BUDGET>>
-  {Ad formats|Units}  :  <<FORMATS>>
-  {Target markets|GEOs}  :  <<GEOS>>
-  {Flight period|Duration}  :  <<FLIGHT>>
+{Campaign specs at a glance|High-level deal parameters|Here is the campaign breakdown}:
 
-{<<APP_NAME>>|Your app} {is a strong fit for their targeting parameters|stood out as a top \
-candidate for this placement|matches the audience profile they're after} — {we specifically \
-shortlisted it during targeting|it came up in our inventory review|your user base aligns well \
-with their ICP}.
+  Advertiser   :  {<<BRAND>>|Confidential <<VERTICAL>> Leader|Multiple <<VERTICAL>> Brands (Anchored by <<BRAND>>)}
+  Budget       :  <<BUDGET>>
+  Formats      :  <<FORMATS>>
+  Target GEOs  :  <<GEOS>>
+  Flight       :  <<FLIGHT>>
 
-{We handle everything through Google Ad Manager as a GCPP|As a Google Certified Publishing \
-Partner, setup is clean and fast|All deals run via GAM — transparent, no surprises} — \
-{no migration required|no changes to your existing stack|fully compatible with your current setup}.
+{Because we operate as a Google Certified Publishing Partner (GCPP), this deal runs entirely through Google Ad Manager|As a GCPP, we execute this strictly via GAM|This is a standard GAM activation} — {meaning zero SDKs to install and no disruption to your current waterfall|which means clean execution without touching your existing mediation setup|so it sits securely on top of your existing demand stack without dev work}.
 
-{Would you be open to a quick call|Are you free for 15 minutes|Can we connect briefly} \
-{this week|early next week|in the next day or two} to {go over the details|confirm availability|\
-align on terms}?
+{Are you open to a brief chat|Can we find 10 minutes|Would you be available for a quick call} {this week|next week} to {discuss floor rates and availability|review the full brief|align on CPMs}?
 
 {Best regards,|Cheers,|Looking forward to connecting,}
 Daniel
@@ -190,36 +181,28 @@ premiumads.net\
 """
 
 FOLLOWUP_SUBJECT = (
-    "{Re: <<BRAND>> × <<APP_NAME>> — Still Available|"
-    "Following Up: <<BRAND>> Deal for <<APP_NAME>>|"
-    "<<BRAND>> × <<APP_NAME>> — One Last Note}"
+    "{Following up: <<VERTICAL>> Direct Deal for <<APP_NAME>>|"
+    "Still open: Seasonal Media Buy for <<APP_NAME>>|"
+    "Re: <<APP_NAME>> / PremiumAds Deal Allocation|"
+    "<<APP_NAME>> Inventory — Quick Follow Up}"
 )
 
 FOLLOWUP_BODY = """\
 Hi <<PROSPECT_NAME>>,
 
-{Just wanted to follow up on|Circling back on|Checking in regarding} my {previous message|\
-note from last week|earlier email} about the <<BRAND>> {campaign|media buy|direct deal}.
+{Circling back on the <<VERTICAL>> deal|Just floating this to the top of your inbox|Following up on my previous note regarding the <<VERTICAL>> campaign}.
 
-{The opportunity is still open|Budget is still available|The campaign is still active} — \
-{the flight window is coming up|we haven't filled the inventory yet|I wanted to make sure \
-this didn't get lost in the inbox}.
+{The advertiser is still finalizing publisher allocations for the upcoming flight|We still have a portion of the <<BUDGET>> budget unallocated|The window to lock in this seasonal spend is closing shortly}, and I want to make sure <<APP_NAME>> is included if you have the inventory available.
 
-{Quick recap|Just to recap|Campaign snapshot}:
+{To recap|Quick reminder on the specs}:
 
-  Brand    :  <<BRAND>>
-  Budget   :  <<BUDGET>>
-  Formats  :  <<FORMATS>>
-  GEOs     :  <<GEOS>>
-  Flight   :  <<FLIGHT>>
+  Advertiser :  {<<BRAND>>|Leading <<VERTICAL>> Brand}
+  GEOs       :  <<GEOS>>
+  Formats    :  <<FORMATS>>
 
-{Happy to send over the full campaign brief if that helps|I can jump on a quick call if easier|\
-Let me know if you'd like more details} — {no heavy lift on your end|setup is straightforward \
-via GAM|we can have this live within a few days of confirmation}.
+{If you're tapped out on inventory this quarter, no worries|I know things get busy, so let me know if the timing is off|Happy to send over the full PDF brief if it helps your team review}. 
 
-{No pressure — just didn't want you to miss out on this one.|Totally understand if timing \
-isn't right — happy to reconnect next quarter.|If now isn't ideal, let me know a better time \
-and I'll follow up then.}
+{Let me know if you're open to a quick chat.|Let me know your thoughts.|Are you free for 5 minutes this week?}
 
 {Best,|Cheers,|Thanks,}
 Daniel
