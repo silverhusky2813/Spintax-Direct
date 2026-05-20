@@ -149,60 +149,82 @@ CPM_BASE = {
 # ── Spintax templates ─────────────────────────────────────────────────────────
 
 OUTREACH_SUBJECT = (
-    "{<<APP_NAME>> × <<VERTICAL>> Direct Deal Allocation|"
-    "Active Campaign Brief: <<APP_NAME>> Premium Inventory|"
-    "Shortlisted: Upcoming Seasonal Budget for <<APP_NAME>>|"
-    "Reserved Media Buy: {<<BRAND>>|Top <<VERTICAL>> Brand} Targeting <<APP_NAME>>}"
+    "{Confirmed media buy — <<BRAND>> needs <<VERTICAL>> inventory|"
+    "<<APP_NAME>> flagged for <<BRAND>> direct deal (<<FLIGHT>>)|"
+    "<<BRAND>> budget available — <<APP_NAME>> is a strong match}"
 )
 
 OUTREACH_BODY = """\
 Hi <<PROSPECT_NAME>>,
 
-{As we head into the new quarter, we are locking in|We are currently mapping out seasonal inventory for|Our trading desk is finalizing upcoming flight allocations for} {a major <<VERTICAL>> brand|several top-tier <<VERTICAL>> advertisers (including <<BRAND>>)|<<BRAND>>}. 
+{I'm Daniel from PremiumAds. Reaching out with a confirmed media buy we need to fill.|
+Reaching out because we have an active <<BRAND>> campaign with budget we need to place.|
+Quick note — we're working with <<BRAND>> on a direct deal and <<APP_NAME>> came up as a strong match.}
 
-They have {active budget|dedicated spend|a live media buy} earmarked specifically for {high-performing|premium|highly engaged} <<VERTICAL>> audiences, and <<APP_NAME>> {hit all their targeting parameters|was flagged by our programmatic team as a direct match|surfaced as a priority target}.
+Based on <<APP_NAME>>'s profile, {it looks like a strong fit|it matches their targeting criteria \
+closely|your audience aligns well with their ICP}.
 
-{Campaign specs at a glance|High-level deal parameters|Here is the campaign breakdown}:
+{Campaign details|Here's the brief|What's on the table}:
 
-  Advertiser   :  {<<BRAND>>|Confidential <<VERTICAL>> Leader|Multiple <<VERTICAL>> Brands (Anchored by <<BRAND>>)}
-  Budget       :  <<BUDGET>>
-  Formats      :  <<FORMATS>>
-  Target GEOs  :  <<GEOS>>
-  Flight       :  <<FLIGHT>>
+  Brand / Advertiser  :  <<BRAND>>
+  Vertical            :  <<VERTICAL>>
+  {Campaign budget|Allocated spend}    :  <<BUDGET>>
+  {Ad formats|Units}          :  <<FORMATS>>
+  {Target GEOs|Markets}         :  <<GEOS>>
+  {Flight period|Duration}       :  <<FLIGHT>>
 
-{Because we operate as a Google Certified Publishing Partner (GCPP), this deal runs entirely through Google Ad Manager|As a GCPP, we execute this strictly via GAM|This is a standard GAM activation} — {meaning zero SDKs to install and no disruption to your current waterfall|which means clean execution without touching your existing mediation setup|so it sits securely on top of your existing demand stack without dev work}.
+{CPM floors (guaranteed, net):|Floor rates on offer:}
 
-{Are you open to a brief chat|Can we find 10 minutes|Would you be available for a quick call} {this week|next week} to {discuss floor rates and availability|review the full brief|align on CPMs}?
+<<CPM_TABLE>>
 
-{Best regards,|Cheers,|Looking forward to connecting,}
+{This is a brand awareness campaign with fixed CPM floors — you earn on every qualifying impression.\
+|All rates are net guaranteed CPMs — no fill risk on your end.\
+|Deals run as Programmatic Guaranteed via GAM — clean setup, no surprises.}
+
+{Allocations for <<FLIGHT>> are {filling up|going fast|nearly committed}.|
+We're {prioritising|working with} publishers who {respond this week|can confirm quickly|move fast}.|
+We've kept this slot open for <<APP_NAME>> but {need to confirm by end of week|can't hold it much longer}.}
+
+{Are you free for a quick call this week?|Can we connect briefly to confirm availability?|\
+Worth a quick reply to hold your spot?}
+
+{Best regards,|Cheers,}
 Daniel
 Head of Global Partnerships | PremiumAds
 premiumads.net\
 """
 
 FOLLOWUP_SUBJECT = (
-    "{Following up: <<VERTICAL>> Direct Deal for <<APP_NAME>>|"
-    "Still open: Seasonal Media Buy for <<APP_NAME>>|"
-    "Re: <<APP_NAME>> / PremiumAds Deal Allocation|"
-    "<<APP_NAME>> Inventory — Quick Follow Up}"
+    "{Re: <<BRAND>> × <<APP_NAME>> — Still Available|"
+    "Following Up: <<BRAND>> Deal for <<APP_NAME>>|"
+    "<<BRAND>> × <<APP_NAME>> — One Last Note}"
 )
 
 FOLLOWUP_BODY = """\
 Hi <<PROSPECT_NAME>>,
 
-{Circling back on the <<VERTICAL>> deal|Just floating this to the top of your inbox|Following up on my previous note regarding the <<VERTICAL>> campaign}.
+{Just wanted to follow up on|Circling back on|Checking in regarding} my {previous message|\
+note from last week|earlier email} about the <<BRAND>> {campaign|media buy|direct deal}.
 
-{The advertiser is still finalizing publisher allocations for the upcoming flight|We still have a portion of the <<BUDGET>> budget unallocated|The window to lock in this seasonal spend is closing shortly}, and I want to make sure <<APP_NAME>> is included if you have the inventory available.
+{The opportunity is still open|Budget is still available|The campaign is still active} — \
+{the flight window is coming up|we haven't filled the inventory yet|I wanted to make sure \
+this didn't get lost in the inbox}.
 
-{To recap|Quick reminder on the specs}:
+{Quick recap|Just to recap|Campaign snapshot}:
 
-  Advertiser :  {<<BRAND>>|Leading <<VERTICAL>> Brand}
-  GEOs       :  <<GEOS>>
-  Formats    :  <<FORMATS>>
+  Brand    :  <<BRAND>>
+  Budget   :  <<BUDGET>>
+  Formats  :  <<FORMATS>>
+  GEOs     :  <<GEOS>>
+  Flight   :  <<FLIGHT>>
 
-{If you're tapped out on inventory this quarter, no worries|I know things get busy, so let me know if the timing is off|Happy to send over the full PDF brief if it helps your team review}. 
+{Happy to send over the full campaign brief if that helps|I can jump on a quick call if easier|\
+Let me know if you'd like more details} — {no heavy lift on your end|setup is straightforward \
+via GAM|we can have this live within a few days of confirmation}.
 
-{Let me know if you're open to a quick chat.|Let me know your thoughts.|Are you free for 5 minutes this week?}
+{No pressure — just didn't want you to miss out on this one.|Totally understand if timing \
+isn't right — happy to reconnect next quarter.|If now isn't ideal, let me know a better time \
+and I'll follow up then.}
 
 {Best,|Cheers,|Thanks,}
 Daniel
