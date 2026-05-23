@@ -1,654 +1,253 @@
+"""
+app.py
+=======
+PremiumAds Spintax Tool — unified entry point.
+
+Wires all stages into one workflow with sidebar navigation and session-state
+routing. This is the single file you run:
+
+    streamlit run app.py
+
+────────────────────────────────────────────────────────────────────────────
+THE WORKFLOW (linear send flow + standalone monitoring screens)
+────────────────────────────────────────────────────────────────────────────
+
+  SEND FLOW (sequential):
+    Stage 1  Campaign setup ──▶ Stage 2  Generate variant ──▶ Stage 3  Confirm & queue
+
+  MONITORING (standalone, reachable any time via sidebar):
+    Queue        — all queued/sent/failed rows (Stage 4 view)
+    Dashboard    — operational health: throughput, drain time (Stage 5)
+    Analytics    — variant reply-rate performance (Stage 7)
+    Accounts     — sender health, warm-up, auto-pause (Stage 6)
+
+Routing is driven by st.session_state["active_view"]. Each stage returns a
+"next action" string; the router translates that into a view transition.
+────────────────────────────────────────────────────────────────────────────
+"""
+
 import streamlit as st
-import random
-import requests as _requests
-from datetime import date, datetime
-from spintax import spin
 
-# Optional dependency — graceful fallback if gspread not installed yet
-try:
-    import gspread
-    from google.oauth2.service_account import Credentials
-    _GSPREAD_OK = True
-except ImportError:
-    _GSPREAD_OK = False
+# ---- Stage UIs ----
+from stage1_ui import render_stage1, ensure_user_identified
+from stage2_ui import render_stage2
+from stage3_ui import render_stage3
+from stage4_queue_view import render_queue_view
+from stage5_dashboard_ui import render_dashboard
+from stage6_accounts_ui import render_accounts
+from stage7_analytics_ui import render_analytics
 
-# ── Page config ───────────────────────────────────────────────────────────────
+
+# ============================================================================
+# PAGE CONFIG
+# ============================================================================
+
 st.set_page_config(
-    page_title="Direct Deal Spintax Generator",
-    page_icon="💼",
+    page_title="PremiumAds Spintax Tool",
+    page_icon="📧",
     layout="wide",
-    initial_sidebar_state="expanded",
 )
 
-st.markdown("""
-<style>
-    [data-testid="stSidebar"] { min-width: 320px; }
-    code { white-space: pre-wrap !important; }
-</style>
-""", unsafe_allow_html=True)
-
-# ── Secrets / Sheet config ────────────────────────────────────────────────────
-def _sheet_configured():
-    try:
-        _ = st.secrets["sheet_id"]
-        _ = st.secrets["service_account_b64"]
-        return _GSPREAD_OK
-    except Exception:
-        return False
-
-def _webapp_configured():
-    try:
-        return bool(st.secrets["webapp_url"])
-    except Exception:
-        return False
-
-SHEET_OK  = _sheet_configured()
-WEBAPP_OK = _webapp_configured()
-
-# Required sheet columns — app ensures these exist and writes by name
-REQUIRED_COLS = ["Email", "Name", "Company", "App_Name", "Status",
-                 "Approach", "Subject", "Body", "Timestamp", "Sent_At"]
-
-@st.cache_resource(show_spinner=False)
-def _get_sheet():
-    import base64, json as _json
-    scope = ["https://spreadsheets.google.com/feeds",
-             "https://www.googleapis.com/auth/drive"]
-    sa_info = _json.loads(base64.b64decode(st.secrets["service_account_b64"]).decode())
-    creds   = Credentials.from_service_account_info(sa_info, scopes=scope)
-    gc      = gspread.authorize(creds)
-    wb      = gc.open_by_key(st.secrets["sheet_id"])
-    sheet   = wb.worksheet("Emails")
-    # Ensure all required headers exist; add any missing ones at the end
-    headers = sheet.row_values(1)
-    for col_name in REQUIRED_COLS:
-        if col_name not in headers:
-            sheet.update_cell(1, len(headers) + 1, col_name)
-            headers.append(col_name)
-    return sheet
-
-def _get_col_map():
-    """Return {header_name: col_index_1based} from row 1."""
-    sheet = _get_sheet()
-    headers = sheet.row_values(1)
-    return {h: i + 1 for i, h in enumerate(headers)}
-
-def append_to_sheet(data: dict) -> int:
-    """Write a row by header name. Returns the actual 1-based row number written."""
-    sheet   = _get_sheet()
-    col_map = _get_col_map()
-    # Find next empty row
-    all_vals = sheet.get_all_values()
-    next_row = len(all_vals) + 1
-    # Write each field to the correct column
-    for field, value in data.items():
-        col = col_map.get(field)
-        if col:
-            sheet.update_cell(next_row, col, value)
-    return next_row
-
-def trigger_send_now(row_number: int) -> bool:
-    try:
-        url  = st.secrets["webapp_url"]
-        resp = _requests.post(url, json={"row": row_number}, timeout=15)
-        data = resp.json()
-        return data.get("success", False)
-    except Exception:
-        return False
-
-# ── Static data ───────────────────────────────────────────────────────────────
-VERTICALS_BRANDS = {
-    "FMCG":             ["Unilever", "P&G", "Nestlé", "Coca-Cola", "PepsiCo", "Colgate-Palmolive", "Reckitt"],
-    "Finance":          ["HSBC", "American Express", "Visa", "Mastercard", "Fidelity", "Charles Schwab", "PayPal"],
-    "Travel":           ["Booking Holdings", "Expedia", "Airbnb", "TripAdvisor", "Marriott", "Hilton", "Delta Airlines"],
-    "E-commerce":       ["Amazon", "Nike", "Unilever", "P&G", "L'Oreal", "LVMH", "Shopify"],
-    "Health & Fitness": ["Peloton", "Nike Health", "Johnson & Johnson", "Abbott", "Fitbit", "Whoop", "Headspace"],
-    "Automotive":       ["Toyota", "BMW", "Ford", "Volkswagen", "Hyundai", "General Motors", "Tesla"],
-    "Retail":           ["Walmart", "Target", "Best Buy", "H&M", "Zara", "IKEA", "Costco"],
-    "Entertainment":    ["Netflix", "Disney+", "Warner Bros", "Spotify", "Apple", "Sony", "Electronic Arts"],
-}
-
-BUDGET_OPTIONS = [
-    "$80,000", "$100,000", "$150,000", "$200,000",
-    "$250,000", "$300,000", "$350,000", "$400,000", "Custom"
-]
-
-FLIGHT_OPTIONS = [
-    "Q3 2025 (Jul 1 – Sep 30, 2025)",
-    "Q4 2025 (Oct 1 – Dec 31, 2025)",
-    "Q1 2026 (Jan 1 – Mar 31, 2026)",
-    "Q2 2026 (Apr 1 – Jun 30, 2026)",
-    "Rolling 4 weeks",
-    "Rolling 8 weeks",
-]
-
-GEO_DATA = {
-    "US":     {"countries": "United States",                                            "mult": 1.00},
-    "Tier 1": {"countries": "UK, Canada, Australia, Germany, France",                   "mult": 0.60},
-    "Tier 2": {"countries": "Brazil, Mexico, Japan, South Korea, Spain, Italy",          "mult": 0.35},
-    "Tier 3": {"countries": "Indonesia, Thailand, Vietnam, Philippines, Turkey, Poland", "mult": 0.15},
-    "Tier 4": {"countries": "India, Pakistan, Nigeria, Egypt, Bangladesh",               "mult": 0.08},
-    "ROW":    {"countries": "Rest of World",                                             "mult": 0.06},
-}
-
-ALL_FORMATS = [
-    "Instream Video", "Rewarded Video", "Interstitial",
-    "Banner/Display", "App Open", "Native", "Audio Ads",
-]
-
-CPM_BASE = {
-    "Instream Video": 12.0,
-    "Rewarded Video": 10.0,
-    "Interstitial":    8.0,
-    "Banner/Display":  2.5,
-    "App Open":        6.0,
-    "Native":          4.0,
-    "Audio Ads":       7.0,
-}
-
-# ── Spintax templates ─────────────────────────────────────────────────────────
-
-OUTREACH_SUBJECT = (
-    "{Confirmed media buy — <<BRAND>> needs <<VERTICAL>> inventory|"
-    "<<APP_NAME>> flagged for <<BRAND>> direct deal (<<FLIGHT>>)|"
-    "<<BRAND>> budget available — <<APP_NAME>> is a strong match}"
-)
-
-OUTREACH_BODY = """\
-Hi <<PROSPECT_NAME>>,
-
-{I'm Daniel from PremiumAds. Reaching out with a confirmed media buy we need to fill.|
-Reaching out because we have an active <<BRAND>> campaign with budget we need to place.|
-Quick note — we're working with <<BRAND>> on a direct deal and <<APP_NAME>> came up as a strong match.}
-
-Based on <<APP_NAME>>'s profile, {it looks like a strong fit|it matches their targeting criteria \
-closely|your audience aligns well with their ICP}.
-
-{Campaign details|Here's the brief|What's on the table}:
-
-  Brand / Advertiser  :  <<BRAND>>
-  Vertical            :  <<VERTICAL>>
-  {Campaign budget|Allocated spend}    :  <<BUDGET>>
-  {Ad formats|Units}          :  <<FORMATS>>
-  {Target GEOs|Markets}         :  <<GEOS>>
-  {Flight period|Duration}       :  <<FLIGHT>>
-
-{CPM floors (guaranteed, net):|Floor rates on offer:}
-
-<<CPM_TABLE>>
-
-{This is a brand awareness campaign with fixed CPM floors — you earn on every qualifying impression.\
-|All rates are net guaranteed CPMs — no fill risk on your end.\
-|Deals run as Programmatic Guaranteed via GAM — clean setup, no surprises.}
-
-{Allocations for <<FLIGHT>> are {filling up|going fast|nearly committed}.|
-We're {prioritising|working with} publishers who {respond this week|can confirm quickly|move fast}.|
-We've kept this slot open for <<APP_NAME>> but {need to confirm by end of week|can't hold it much longer}.}
-
-{Are you free for a quick call this week?|Can we connect briefly to confirm availability?|\
-Worth a quick reply to hold your spot?}
-
-{Best regards,|Cheers,}
-Daniel
-Head of Global Partnerships | PremiumAds
-premiumads.net\
-"""
-
-FOLLOWUP_SUBJECT = (
-    "{Re: <<BRAND>> × <<APP_NAME>> — Still Available|"
-    "Following Up: <<BRAND>> Deal for <<APP_NAME>>|"
-    "<<BRAND>> × <<APP_NAME>> — One Last Note}"
-)
-
-FOLLOWUP_BODY = """\
-Hi <<PROSPECT_NAME>>,
-
-{Just wanted to follow up on|Circling back on|Checking in regarding} my {previous message|\
-note from last week|earlier email} about the <<BRAND>> {campaign|media buy|direct deal}.
-
-{The opportunity is still open|Budget is still available|The campaign is still active} — \
-{the flight window is coming up|we haven't filled the inventory yet|I wanted to make sure \
-this didn't get lost in the inbox}.
-
-{Quick recap|Just to recap|Campaign snapshot}:
-
-  Brand    :  <<BRAND>>
-  Budget   :  <<BUDGET>>
-  Formats  :  <<FORMATS>>
-  GEOs     :  <<GEOS>>
-  Flight   :  <<FLIGHT>>
-
-{Happy to send over the full campaign brief if that helps|I can jump on a quick call if easier|\
-Let me know if you'd like more details} — {no heavy lift on your end|setup is straightforward \
-via GAM|we can have this live within a few days of confirmation}.
-
-{No pressure — just didn't want you to miss out on this one.|Totally understand if timing \
-isn't right — happy to reconnect next quarter.|If now isn't ideal, let me know a better time \
-and I'll follow up then.}
-
-{Best,|Cheers,|Thanks,}
-Daniel
-PremiumAds | Head of Global Partnerships
-premiumads.net\
-"""
-
-BRIEF_BODY = """\
-━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-  AGENCY CAMPAIGN BRIEF
-  PremiumAds — Direct Deal Program
-━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-
-  Reference No.    :  PA-DD-{2025|2026}-{47|48|49|50|51|52|53|54}
-  {Issued|Prepared|Generated}          :  <<TODAY_DATE>>
-  Account Manager  :  Daniel — Head of Global Partnerships
-
-━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-  ADVERTISER DETAILS
-━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-
-  Brand / Advertiser  :  <<BRAND>>
-  Vertical            :  <<VERTICAL>>
-  Campaign Objective  :  {Brand awareness & reach|User acquisition & installs|Retargeting & re-engagement|Conversion-focused performance}
-  Agency / Desk       :  {In-house programmatic team|Independent trading desk|Agency of record|Omnicom|IPG Mediabrands|GroupM}
-
-━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-  PUBLISHER DETAILS
-━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-
-  Publisher           :  <<PROSPECT_NAME>>
-  App / Property      :  <<APP_NAME>>
-  Placement Type      :  {Premium in-app mobile inventory|In-app mobile — programmatic direct|Mobile app — direct placement}
-
-━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-  CAMPAIGN PARAMETERS
-━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-
-  Total Budget        :  <<BUDGET>>
-  Flight Period       :  <<FLIGHT>>
-  Target GEOs         :  <<GEOS>>
-
-  Ad Formats          :
-<<FORMATS_BULLETED>>
-
-  Frequency Cap       :  {3 impressions / user / 24h|5 impressions / user / 24h|No cap — broad reach}
-  Brand Safety        :  {GARM standard — Suitable content only|IAS / DoubleVerify verified|Publisher-declared — Premium app environment}
-
-━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-  CPM RATE CARD (Floor Rates, USD)
-━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-
-<<CPM_TABLE>>
-
-━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-  DEAL TERMS
-━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-
-  Deal Type           :  {Programmatic Guaranteed (PG)|Preferred Deal (PD)|Programmatic Direct}
-  Measurement         :  {MRC-accredited viewability standards|IAS third-party verification|DoubleVerify brand safety + viewability}
-  Payment Terms       :  {Net 30|Net 45|Net 60}
-  Creative Assets     :  {Provided by advertiser via VAST tag|Client-supplied creatives — VAST 4.1|PremiumAds creative studio (on request)}
-
-━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-  NEXT STEPS
-━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-
-{  1. Confirm inventory availability + floor CPM rates
-  2. PremiumAds issues Deal ID via Google Ad Manager
-  3. Creative assets submitted (T-3 days before flight start)
-  4. Test impressions + QA sign-off
-  5. Campaign go-live confirmation|  1. Publisher reviews brief + confirms fit
-  2. Align on CPM floor rates
-  3. Exchange Deal IDs via GAM / preferred SSP
-  4. Creative trafficking — VAST tags provided by advertiser
-  5. Activation + first-week performance check-in}
-
-  To proceed → Daniel | daniel@premiumads.net | premiumads.net
-
-━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-  {CONFIDENTIAL — For recipient use only|PRIVATE & CONFIDENTIAL|FOR PUBLISHER USE ONLY}
-━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\
-"""
-
-BRIEF_SUBJECT = (
-    "{Campaign Brief: <<BRAND>> × <<APP_NAME>>|"
-    "<<BRAND>> Media Proposal — <<VERTICAL>>|"
-    "Partnership Brief: <<BRAND>> for <<APP_NAME>>}"
-)
-
-TEMPLATE_MAP = {
-    "📧 Outreach Email": {
-        "subject":  OUTREACH_SUBJECT,
-        "body":     OUTREACH_BODY,
-        "is_email": True,
-    },
-    "🔁 Follow-Up Email": {
-        "subject":  FOLLOWUP_SUBJECT,
-        "body":     FOLLOWUP_BODY,
-        "is_email": True,
-    },
-    "📋 Agency Campaign Brief": {
-        "subject":  BRIEF_SUBJECT,
-        "body":     BRIEF_BODY,
-        "is_email": True,
-    },
-}
-
-# ── Helper functions ──────────────────────────────────────────────────────────
-
-def build_cpm_table(selected_formats, selected_geos, custom_geo_mult=0.20, variance=0.12):
-    """Build CPM rate card. Each call applies +-variance% random noise per cell (2 d.p.)."""
-    if not selected_formats or not selected_geos:
-        return "  [Select formats and GEOs to generate rate card]"
-    fmt_w, col_w = 22, 13
-    header  = f"  {'Format':<{fmt_w}}" + "".join(f"{'CPM (' + g + ')':>{col_w}}" for g in selected_geos)
-    divider = "  " + "─" * (fmt_w + col_w * len(selected_geos))
-    rows    = [header, divider]
-    for fmt in selected_formats:
-        base = CPM_BASE.get(fmt, 5.0)
-        row  = f"  {fmt:<{fmt_w}}"
-        for g in selected_geos:
-            mult  = GEO_DATA[g]["mult"] if g in GEO_DATA else custom_geo_mult
-            noise = random.uniform(1 - variance, 1 + variance)
-            cpm   = round(base * mult * noise, 2)
-            row  += f"${cpm:>{col_w - 2}.2f}   "
-        rows.append(row)
-    return "\n".join(rows)
-
-
-def substitute(template, data):
-    formats_bulleted = (
-        "\n".join(f"    \u2022 {f}" for f in data["formats_list"])
-        if data["formats_list"] else "    \u2022 [No formats selected]"
-    )
-    subs = {
-        "<<PROSPECT_NAME>>":    data.get("prospect_name", "[Publisher Name]"),
-        "<<APP_NAME>>":         data.get("app_name",      "[App Name]"),
-        "<<BRAND>>":            data.get("brand",         "[Brand]"),
-        "<<BUDGET>>":           data.get("budget",        "[Budget]"),
-        "<<VERTICAL>>":         data.get("vertical",      "[Vertical]"),
-        "<<FORMATS>>":          data.get("formats_str",   "[Formats]"),
-        "<<FORMATS_BULLETED>>": formats_bulleted,
-        "<<GEOS>>":             data.get("geos_str",      "[GEOs]"),
-        "<<FLIGHT>>":           data.get("flight",        "[Flight Period]"),
-        # <<CPM_TABLE>> is injected per-variation in make_variations
-        "<<TODAY_DATE>>":       date.today().strftime("%B %d, %Y"),
-    }
-    for k, v in subs.items():
-        template = template.replace(k, v)
-    return template
-
-
-def make_variations(subject_tpl, body_tpl, data, n, fmt_list, geo_list, custom_mult):
-    """Generate n unique variations; each gets a freshly spun CPM table."""
-    filled_subj = substitute(subject_tpl, data) if subject_tpl else None
-    filled_body = substitute(body_tpl, data)
-    results = []
-    for _ in range(n):
-        cpm_table     = build_cpm_table(fmt_list, geo_list, custom_mult)
-        body_with_cpm = filled_body.replace("<<CPM_TABLE>>", cpm_table)
-        results.append({
-            "subject": spin(filled_subj) if filled_subj else None,
-            "body":    spin(body_with_cpm),
-        })
-    return results
-
-
-def do_send(var, to_email, template_name, prospect_name, company, app_name, send_mode):
-    """Write row to Sheet and optionally trigger immediate send via Apps Script Web App."""
-    if not SHEET_OK:
-        return False, "Sheet not configured — see README for secrets setup."
-
-    now     = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-    subject = var.get("subject") or ""
-    body    = var.get("body") or ""
-    # Write by column name — robust to any sheet column order
-    row_data = {
-        "Email":     to_email,
-        "Name":      prospect_name,
-        "Company":   company,
-        "App_Name":  app_name,
-        "Status":    "Queued",
-        "Approach":  template_name,
-        "Subject":   subject,
-        "Body":      body,
-        "Timestamp": now,
-        "Sent_At":   "",
-    }
-
-    try:
-        row_number = append_to_sheet(row_data)
-    except Exception as e:
-        return False, f"Sheet write failed: {e}"
-
-    if send_mode == "Send Now":
-        if not WEBAPP_OK:
-            return True, "Queued to sheet (no webapp_url — will send on next trigger run)"
-        ok = trigger_send_now(row_number)
-        if ok:
-            return True, f"Sent immediately via Apps Script (row {row_number})"
-        else:
-            return True, f"Sheet write OK, Web App trigger failed — will send on queue run (row {row_number})"
-
-    return True, f"Queued to sheet (row {row_number}) — Apps Script will send on next trigger"
-
-
-# ── Sidebar ───────────────────────────────────────────────────────────────────
-with st.sidebar:
-    st.title("💼 Direct Deal")
-    st.caption("Spintax Generator — PremiumAds")
-    st.divider()
-
-    st.subheader("📋 Prospect Info")
-    prospect_name  = st.text_input("Publisher / Contact Name", placeholder="e.g. John Kim")
-    company        = st.text_input("Company / Studio", placeholder="e.g. AppCo Ltd")
-    app_name       = st.text_input("App Name", placeholder="e.g. Puzzle Adventure")
-    prospect_email = st.text_input("Prospect Email", placeholder="e.g. john@appco.com")
-
-    st.divider()
-    st.subheader("🏷️ Campaign Details")
-
-    vertical_opts   = list(VERTICALS_BRANDS.keys()) + ["Custom"]
-    vertical_choice = st.selectbox("Vertical", vertical_opts)
-    if vertical_choice == "Custom":
-        vertical   = st.text_input("Enter vertical name", placeholder="e.g. EdTech") or "[Custom Vertical]"
-        brand_opts = ["Custom"]
+
+# ============================================================================
+# SESSION STATE HELPERS
+# ============================================================================
+
+def _get_view() -> str:
+    """Current active view. Defaults to the start of the send flow."""
+    return st.session_state.get("active_view", "stage1")
+
+
+def _go(view: str):
+    """Transition to a view and rerun."""
+    st.session_state["active_view"] = view
+    st.rerun()
+
+
+def _reset_to_new_campaign():
+    """Clear all flow state and return to Stage 1 fresh."""
+    for key in [
+        "active_view", "current_campaign_id", "current_approved",
+    ]:
+        st.session_state.pop(key, None)
+    # Clear any per-campaign stage2/stage3 keys
+    for key in list(st.session_state.keys()):
+        if key.startswith("stage2_") or key.startswith("stage3_"):
+            st.session_state.pop(key, None)
+    st.rerun()
+
+
+def _clear_recipient_state():
+    """
+    Clear recipient-specific state but KEEP the campaign — used for
+    'back to stage 2' (re-pick a variant for the SAME recipient).
+    """
+    st.session_state.pop("current_approved", None)
+    for key in list(st.session_state.keys()):
+        if key.startswith("stage2_") or key.startswith("stage3_"):
+            st.session_state.pop(key, None)
+
+
+def _clear_send_flow_state():
+    """
+    Clear campaign + recipient + variant state, returning to a clean Stage 1,
+    but PRESERVE user identity (don't re-prompt 'who are you'). Used by
+    'send another to this campaign' — each send is a new (campaign, recipient)
+    pair, and Stage 1's 'Load from recent' makes reusing settings fast.
+    """
+    for key in ["active_view", "current_campaign_id", "current_approved"]:
+        st.session_state.pop(key, None)
+    for key in list(st.session_state.keys()):
+        if key.startswith("stage2_") or key.startswith("stage3_"):
+            st.session_state.pop(key, None)
+
+
+# ============================================================================
+# SIDEBAR NAVIGATION
+# ============================================================================
+
+def _render_sidebar():
+    with st.sidebar:
+        st.title("📧 PremiumAds")
+        st.caption("Spintax outreach engine")
+
+        # User identity (set by ensure_user_identified)
+        user = st.session_state.get("user_email")
+        if user:
+            st.caption(f"👤 {user}")
+
+        st.divider()
+
+        # --- Send flow ---
+        st.caption("**SEND FLOW**")
+        if st.button("➕ New campaign", use_container_width=True):
+            _reset_to_new_campaign()
+
+        # Show current position in the flow
+        view = _get_view()
+        flow_label = {
+            "stage1": "① Campaign setup",
+            "stage2": "② Generate variant",
+            "stage3": "③ Confirm & queue",
+        }.get(view)
+        if flow_label:
+            st.caption(f"Current: {flow_label}")
+
+        st.divider()
+
+        # --- Monitoring ---
+        st.caption("**MONITORING**")
+        if st.button("📋 Queue", use_container_width=True):
+            _go("queue")
+        if st.button("📊 Health dashboard", use_container_width=True):
+            _go("dashboard")
+        if st.button("📈 Analytics", use_container_width=True):
+            _go("analytics")
+        if st.button("✉️ Accounts", use_container_width=True):
+            _go("accounts")
+
+        st.divider()
+        st.caption("v1.0 · 7-stage pipeline")
+
+
+# ============================================================================
+# VIEW ROUTER
+# ============================================================================
+
+def _route():
+    view = _get_view()
+
+    # ---- SEND FLOW ----
+
+    if view == "stage1":
+        campaign_id = render_stage1()
+        if campaign_id:
+            st.session_state["current_campaign_id"] = campaign_id
+            _go("stage2")
+
+    elif view == "stage2":
+        campaign_id = st.session_state.get("current_campaign_id")
+        if not campaign_id:
+            _go("stage1")
+            return  # _go raises rerun, but be explicit — never call render with None
+        approved = render_stage2(campaign_id)
+        if approved:
+            st.session_state["current_approved"] = approved
+            _go("stage3")
+
+    elif view == "stage3":
+        approved = st.session_state.get("current_approved")
+        if not approved:
+            _go("stage2")
+            return  # never call render_stage3(None)
+        action = render_stage3(approved)
+        if action == "send_another":
+            # BUG FIX: "send another" must return to Stage 1, not Stage 2.
+            # The recipient_email lives on the campaign row (set in Stage 1);
+            # Stage 2 reads it from there and has no recipient input. Looping
+            # to Stage 2 would re-target the SAME recipient (then get blocked by
+            # the idempotency check). Stage 1 is where a new recipient is
+            # entered — and its "Load from recent campaign" feature makes
+            # reusing the brand/vertical/CPM fast. We clear the campaign id so
+            # Stage 1 starts a fresh (campaign, recipient) pair.
+            _clear_send_flow_state()
+            _go("stage1")
+        elif action == "new_campaign":
+            _reset_to_new_campaign()
+        elif action == "view_queue":
+            _go("queue")
+        elif action == "back_to_stage2":
+            # Genuine "go back and re-pick a variant for the SAME recipient"
+            _clear_recipient_state()
+            _go("stage2")
+
+    # ---- MONITORING SCREENS ----
+
+    elif view == "queue":
+        action = render_queue_view()
+        if action == "new_campaign":
+            _reset_to_new_campaign()
+
+    elif view == "dashboard":
+        action = render_dashboard()
+        if action == "new_campaign":
+            _reset_to_new_campaign()
+        elif action == "view_queue":
+            _go("queue")
+
+    elif view == "analytics":
+        action = render_analytics()
+        if action == "new_campaign":
+            _reset_to_new_campaign()
+        elif action == "dashboard":
+            _go("dashboard")
+
+    elif view == "accounts":
+        action = render_accounts()
+        if action == "new_campaign":
+            _reset_to_new_campaign()
+        elif action == "dashboard":
+            _go("dashboard")
+        elif action == "analytics":
+            _go("analytics")
+
     else:
-        vertical   = vertical_choice
-        brand_opts = VERTICALS_BRANDS[vertical_choice] + ["Custom"]
+        # Unknown view — reset
+        _go("stage1")
 
-    brand_choice = st.selectbox("Brand / Advertiser", brand_opts)
-    if brand_choice == "Custom":
-        brand = st.text_input("Enter brand name", placeholder="e.g. Coca-Cola")
-    else:
-        brand = brand_choice
 
-    budget_choice = st.selectbox("Budget", BUDGET_OPTIONS)
-    if budget_choice == "Custom":
-        budget = st.text_input("Enter budget", placeholder="e.g. $175,000")
-    else:
-        budget = budget_choice
+# ============================================================================
+# MAIN
+# ============================================================================
 
-    flight = st.selectbox("Flight Period", FLIGHT_OPTIONS, index=1)
+def main():
+    # Identify the user once (used for audit trail across the app).
+    # ensure_user_identified() halts with st.stop() until a user is chosen.
+    ensure_user_identified()
 
-    geo_opts      = list(GEO_DATA.keys()) + ["Custom"]
-    selected_geos = st.multiselect("Target GEOs", geo_opts, default=["US", "Tier 1"])
-    custom_geo_mult = 0.20
-    if "Custom" in selected_geos:
-        custom_geo = st.text_input("Custom GEO(s)", placeholder="e.g. MENA, LATAM, SEA")
-        custom_geo_mult = st.number_input(
-            "Fallback CPM multiplier for custom GEO",
-            min_value=0.01, max_value=1.00, value=0.20, step=0.01,
-            help="Ref: Tier 1=0.60 · Tier 2=0.35 · Tier 3=0.15 · Tier 4=0.08",
-        )
-        selected_geos = [g for g in selected_geos if g != "Custom"]
-        if custom_geo.strip():
-            selected_geos.append(custom_geo.strip())
+    _render_sidebar()
+    _route()
 
-    selected_formats = st.multiselect(
-        "Ad Formats", ALL_FORMATS, default=["Rewarded Video", "Interstitial"]
-    )
 
-    st.divider()
-    st.subheader("⚙️ Generate")
-    n_variations = st.slider("Number of variations", min_value=1, max_value=10, value=3)
-    generate_btn = st.button("🎲 Generate Variations", use_container_width=True, type="primary")
-
-    # Sheet connection status
-    st.divider()
-    if SHEET_OK:
-        st.success("📊 Sheet connected", icon="✅")
-        if WEBAPP_OK:
-            st.success("⚡ Send Now enabled", icon="✅")
-        else:
-            st.info("🕐 Queue mode only\n(add webapp_url to enable Send Now)", icon="ℹ️")
-    else:
-        st.warning("Sheet not configured\nSee README → Secrets Setup", icon="⚠️")
-
-# ── Main area ─────────────────────────────────────────────────────────────────
-st.title("Direct Deal Spintax Generator")
-st.caption("PremiumAds · Google Certified Publishing Partner · premiumads.net")
-
-template_choice = st.radio("Template", list(TEMPLATE_MAP.keys()), horizontal=True)
-st.divider()
-
-# ── Generate ──────────────────────────────────────────────────────────────────
-if generate_btn:
-    if not brand or (brand_choice == "Custom" and not brand.strip()):
-        st.warning("Please enter a brand name.")
-    elif not selected_geos:
-        st.warning("Please select at least one GEO.")
-    elif not selected_formats:
-        st.warning("Please select at least one ad format.")
-    else:
-        data = {
-            "prospect_name": prospect_name.strip() or "[Publisher Name]",
-            "app_name":      app_name.strip()      or "[App Name]",
-            "brand":         brand.strip() if brand_choice == "Custom" else brand_choice,
-            "budget":        budget.strip() if budget_choice == "Custom" else budget_choice,
-            "vertical":      vertical,
-            "formats_str":   ", ".join(selected_formats),
-            "formats_list":  selected_formats,
-            "geos_str":      ", ".join(selected_geos),
-            "flight":        flight,
-        }
-        tpl = TEMPLATE_MAP[template_choice]
-        variations = make_variations(
-            tpl["subject"], tpl["body"], data,
-            n_variations, selected_formats, selected_geos, custom_geo_mult,
-        )
-        st.session_state["variations"]     = variations
-        st.session_state["is_email"]       = tpl["is_email"]
-        st.session_state["template_name"]  = template_choice
-        st.session_state["prospect_email"] = prospect_email.strip()
-        st.session_state["prospect_name"]  = prospect_name.strip() or "[Publisher Name]"
-        st.session_state["company_saved"]  = company.strip()       or ""
-        st.session_state["app_name_saved"] = app_name.strip()      or "[App Name]"
-        st.session_state.pop("send_status", None)   # reset statuses on re-generate
-        # Seed editable subject/body fields for each variation
-        for idx, var in enumerate(variations):
-            st.session_state[f"subject_{idx}"] = var["subject"] or ""
-            st.session_state[f"body_{idx}"]    = var["body"]    or ""
-
-# ── Display & Send ────────────────────────────────────────────────────────────
-if "variations" in st.session_state and st.session_state["variations"]:
-    variations    = st.session_state["variations"]
-    is_email      = st.session_state["is_email"]
-    template_name = st.session_state["template_name"]
-    saved_email   = st.session_state.get("prospect_email", "")
-    saved_name    = st.session_state.get("prospect_name",  "[Publisher Name]")
-    saved_company = st.session_state.get("company_saved",  "")
-    saved_app     = st.session_state.get("app_name_saved", "[App Name]")
-
-    if "send_status" not in st.session_state:
-        st.session_state["send_status"] = {}
-
-    st.subheader(f"✅ {len(variations)} variation{'s' if len(variations) > 1 else ''} — {template_name}")
-
-    for i, var in enumerate(variations):
-        with st.expander(f"Variation {i + 1}", expanded=(i == 0)):
-
-            # Content preview — fully editable
-            if is_email and var["subject"] is not None:
-                st.markdown("**Subject line:**")
-                st.text_input(
-                    "Subject line",
-                    key=f"subject_{i}",
-                    label_visibility="collapsed",
-                )
-                st.markdown("**Email body:**")
-            st.text_area(
-                "Email body",
-                key=f"body_{i}",
-                height=420,
-                label_visibility="collapsed",
-            )
-
-            # Send section
-            st.divider()
-            st.markdown("**📤 Send this variation**")
-
-            to_email_input = st.text_input(
-                "To", value=saved_email,
-                placeholder="publisher@example.com",
-                key=f"to_{i}",
-                label_visibility="collapsed",
-            )
-
-            status_key = f"v{i}"
-            existing   = st.session_state["send_status"].get(status_key)
-
-            if existing:
-                icon = "✅" if existing["ok"] else "⚠️"
-                st.markdown(f"{icon} `{existing['msg']}`")
-                if st.button("↩ Re-send", key=f"resend_{i}"):
-                    st.session_state["send_status"].pop(status_key, None)
-                    st.rerun()
-            else:
-                c1, c2 = st.columns(2)
-                with c1:
-                    send_now = st.button(
-                        "⚡ Send Now", key=f"now_{i}",
-                        use_container_width=True, type="primary",
-                        disabled=not SHEET_OK,
-                        help="Sends immediately via Apps Script Web App" if SHEET_OK else "Configure secrets first",
-                    )
-                with c2:
-                    queue = st.button(
-                        "🕐 Add to Queue", key=f"queue_{i}",
-                        use_container_width=True,
-                        disabled=not SHEET_OK,
-                        help="Adds to Sheet; time trigger will process it" if SHEET_OK else "Configure secrets first",
-                    )
-
-                if send_now or queue:
-                    if not to_email_input.strip():
-                        st.warning("Enter a recipient email first.")
-                    else:
-                        mode = "Send Now" if send_now else "Queued"
-                        # Use edited subject/body from session_state
-                        edited_var = {
-                            "subject": st.session_state.get(f"subject_{i}", var.get("subject", "")),
-                            "body":    st.session_state.get(f"body_{i}",    var.get("body",    "")),
-                        }
-                        with st.spinner("Writing to Sheet…"):
-                            ok, msg = do_send(
-                                edited_var, to_email_input.strip(),
-                                template_name, saved_name, saved_company, saved_app, mode,
-                            )
-                        st.session_state["send_status"][status_key] = {"ok": ok, "msg": msg}
-                        st.rerun()
-
-else:
-    col1, col2, col3 = st.columns([1, 2, 1])
-    with col2:
-        st.info(
-            "**Getting started:**\n\n"
-            "1. Fill in **Prospect Info** (including email) in the sidebar\n"
-            "2. Select a **template** above\n"
-            "3. Click **Generate Variations**\n"
-            "4. Use **⚡ Send Now** or **🕐 Add to Queue** per variation\n\n"
-            "_Each variation is a unique spin of the selected template._"
-        )
-
-st.divider()
-st.caption("PremiumAds · Google Certified Publishing Partner (GCPP) · premiumads.net")
+if __name__ == "__main__":
+    main()
