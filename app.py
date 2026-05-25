@@ -36,6 +36,7 @@ from stage4_queue_view import render_queue_view
 from stage5_dashboard_ui import render_dashboard
 from stage6_accounts_ui import render_accounts
 from stage7_analytics_ui import render_analytics
+from setup_gate import ensure_schema_ready
 
 
 # ============================================================================
@@ -241,6 +242,10 @@ def _route():
 # ============================================================================
 
 def main():
+    # First-run gate: if the Sheet isn't initialized, show a one-click setup
+    # screen and halt. No-op once the schema is ready.
+    ensure_schema_ready()
+
     # Identify the user once (used for audit trail across the app).
     # ensure_user_identified() halts with st.stop() until a user is chosen.
     ensure_user_identified()

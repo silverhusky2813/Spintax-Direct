@@ -1,0 +1,9 @@
+[theme]
+base = "dark"
+
+[server]
+# Keep the app responsive; Sheets calls can be slow on cold cache
+runOnSave = true
+
+[browser]
+gatherUsageStats = false
